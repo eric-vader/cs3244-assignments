@@ -61,8 +61,6 @@ def grade_function(student_fn, solution_fn, test_cases, check_fn):
         for args in test_cases:
             output = student_fn(*args)
             expected = solution_fn(*args)
-            if test_cases == TC_3_1 and not check_fn(output, expected):
-                print(args)
             if not check_fn(output, expected):
                 return 0
         return 1
