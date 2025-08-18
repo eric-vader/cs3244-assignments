@@ -325,6 +325,7 @@ TASKS = [
 
 def autograde_folder(folder):
     rows = []
+    fails = []
     for filename in tqdm(os.listdir(folder)):
         if not filename.endswith(".ipynb"):
             continue
@@ -338,8 +339,14 @@ def autograde_folder(folder):
         
         # Import module
         module_name = filename.replace(".ipynb", "")
-        module = import_module_from_path(module_name, module_path)
-        
+        try:
+            module = import_module_from_path(module_name, module_path)
+        except Exception:
+            # Catch notebooks that fail to run
+            fails.append(student_number)
+            os.remove(module_path)
+            continue
+
         # Grade function
         total_score = 0
 
@@ -358,10 +365,9 @@ def autograde_folder(folder):
         row.append(total_score)
         rows.append(row)
 
-        try:
-            os.remove(module_path)
-        except OSError as e:
-            print(f"Error deleting {module_path}: {e}")
+        os.remove(module_path)
+
+    print(f"Failed to compile: {fails}")
     return pd.DataFrame(rows, columns=["student_number", "1", "2", "3.1", "3.2", "4.1", "4.2", "5", "total"])
 
 # -----------------------------
