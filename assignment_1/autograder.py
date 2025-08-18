@@ -356,6 +356,11 @@ def autograde_folder(folder):
             total_score += score
         row.append(total_score)
         rows.append(row)
+
+        try:
+            os.remove(module_path)
+        except OSError as e:
+            print(f"Error deleting {module_path}: {e}")
     return pd.DataFrame(rows, columns=["student_number", "1", "2", "3.1", "3.2", "4.1", "4.2", "5", "total"])
 
 # -----------------------------
