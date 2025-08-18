@@ -7,9 +7,7 @@ import math
 from collections import Counter
 import pandas as pd
 from sklearn.datasets import fetch_lfw_people
-from sklearn.metrics import get_scorer
-from sklearn.model_selection import StratifiedKFold
-import numpy as np
+from sklearn.model_selection import train_test_split
 from tqdm import tqdm
 from contextlib import redirect_stdout
 import io
@@ -297,20 +295,17 @@ def grade_q5(student_fn):
     X = lfw_people.data  # Flattened images
     y = lfw_people.target
 
-    try:
-        # Use cross-validation to evaluate the model
-        cv = StratifiedKFold(n_splits=5, shuffle=True, random_state=42)
-        scores = []
-        for train_idx, test_idx in cv.split(X, y):
-            X_train_cv, X_test_cv = X[train_idx], X[test_idx]
-            y_train_cv, y_test_cv = y[train_idx], y[test_idx]
-            model_cv = student_fn(X_train_cv, y_train_cv)
-            scorer = get_scorer("accuracy")
-            score = scorer(model_cv, X_test_cv, y_test_cv)
-            scores.append(score)
+    # Split into training and test sets
+    X_train, X_test, y_train, y_test = train_test_split(
+        X, y, test_size=0.25, random_state=42)
 
-        scores = np.array(scores)
-        return 1 if scores.mean() > ACCURACY_THRESHOLD else 0
+    try:
+        model = student_fn(X_train, y_train)
+        predictions = model.predict(X_test)
+        if len(predictions) != len(X_test):
+            return 0
+        accuracy_score = model.score(X_test, y_test)
+        return 1 if accuracy_score > ACCURACY_THRESHOLD else 0
     except Exception:
         return 0
 
@@ -335,6 +330,7 @@ def autograde_folder(folder):
 
         nb_path = os.path.join(folder, filename)
         module_path = nb_path.replace(".ipynb", ".py")
+        student_number = filename[:-6]
         
         # Convert notebook -> module
         notebook_to_module(nb_path, module_path)
@@ -346,7 +342,7 @@ def autograde_folder(folder):
         # Grade function
         total_score = 0
 
-        row = [filename]
+        row = [student_number]
         for type, task, solution_fn, check_fn, test_cases in TASKS:
             student_fn = getattr(module, task)
             if type == "function":
