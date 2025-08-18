@@ -15,8 +15,10 @@ import io
 # -----------------------------
 # Configuration
 # -----------------------------
-NOTEBOOK_FOLDER = "./assignment_1/notebooks"  # folder containing student .ipynb files
-OUTPUT_CSV = "./assignment_1/a1_grades.csv"
+sys.dont_write_bytecode = True
+BASE_DIR = os.path.dirname(os.path.abspath(__file__))
+NOTEBOOK_FOLDER = os.path.join(BASE_DIR, "notebooks")
+OUTPUT_CSV = os.path.join(BASE_DIR, "a1_grades.csv")
 GRADE_DISTRIBUTION = [1, 1, 1, 1, 2, 2, 1]
 
 # -----------------------------
@@ -44,7 +46,6 @@ def import_module_from_path(module_name, module_path):
 # -----------------------------
 # Generic Grader Functions
 # -----------------------------
-
 def default_assert(output, expected):
     return output == expected
 
@@ -313,13 +314,13 @@ def grade_q5(student_fn):
 # Autograde Workflow
 # -----------------------------
 TASKS = [
-    ("function", "euclidean_distance", euclidean_distance_solution, float_assert, TC_1),
-    ("function", "get_k_nearest_neighbors", get_k_nearest_neighbors_solution, default_assert, TC_2),
-    ("function", "knn_majority_vote", knn_majority_vote_solution, default_assert, TC_3_1), 
-    ("function", "knn_regression", knn_regression_solution, float_assert, TC_3_2), 
-    ("class", "KNNClassifier", KNNClassifier_solution, default_assert, TC_4_1), 
-    ("class", "KNNRegressor", KNNRegressor_solution, list_float_assert, TC_4_2),
-    ("q5", "train_model", None, None, None)
+    ("function", "euclidean_distance", euclidean_distance_solution, float_assert, TC_1, GRADE_DISTRIBUTION[0]),
+    ("function", "get_k_nearest_neighbors", get_k_nearest_neighbors_solution, default_assert, TC_2, GRADE_DISTRIBUTION[1]),
+    ("function", "knn_majority_vote", knn_majority_vote_solution, default_assert, TC_3_1, GRADE_DISTRIBUTION[2]), 
+    ("function", "knn_regression", knn_regression_solution, float_assert, TC_3_2, GRADE_DISTRIBUTION[3]), 
+    ("class", "KNNClassifier", KNNClassifier_solution, default_assert, TC_4_1, GRADE_DISTRIBUTION[4]), 
+    ("class", "KNNRegressor", KNNRegressor_solution, list_float_assert, TC_4_2, GRADE_DISTRIBUTION[5]),
+    ("q5", "train_model", None, None, None, GRADE_DISTRIBUTION[6])
 ]
 
 def autograde_folder(folder):
@@ -343,14 +344,14 @@ def autograde_folder(folder):
         total_score = 0
 
         row = [student_number]
-        for type, task, solution_fn, check_fn, test_cases in TASKS:
+        for type, task, solution_fn, check_fn, test_cases, weight in TASKS:
             student_fn = getattr(module, task)
             if type == "function":
-                score = grade_function(student_fn, solution_fn, test_cases, check_fn)
+                score = grade_function(student_fn, solution_fn, test_cases, check_fn) * weight
             elif type == "class":
-                score = grade_class(student_fn, solution_fn, test_cases, check_fn)
+                score = grade_class(student_fn, solution_fn, test_cases, check_fn) * weight
             elif type == "q5":
-                score = grade_q5(student_fn)
+                score = grade_q5(student_fn) * weight
 
             row.append(score)
             total_score += score
