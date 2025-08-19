@@ -42,45 +42,6 @@ def import_module_from_path(module_name, module_path):
     with redirect_stdout(f):   # capture all prints
         spec.loader.exec_module(module)
     return module
-
-# -----------------------------
-# Generic Grader Functions
-# -----------------------------
-def default_assert(output, expected):
-    return output == expected
-
-def float_assert(output, expected, tolerance=1e-5):
-    return abs(output - expected) < tolerance
-
-def list_float_assert(output, expected, tolerance=1e-5):
-    return all(abs(o - e) < tolerance for o, e in zip(output, expected))
-
-def grade_function(student_fn, solution_fn, test_cases, check_fn):
-    try:
-        for args in test_cases:
-            output = student_fn(*args)
-            expected = solution_fn(*args)
-            if not check_fn(output, expected):
-                return 0
-        return 1
-    except Exception:
-        return 0
-    
-def grade_class(student_class, solution_class, test_cases, check_fn):
-    try:
-        for X_train, y_train, X_test, k in test_cases:
-            output_class = student_class(k)
-            output_class.fit(X_train, y_train)
-            output = output_class.predict(X_test)
-
-            expected_class = solution_class(k)
-            expected_class.fit(X_train, y_train)
-            expected = expected_class.predict(X_test)
-            if not check_fn(output, expected):
-                return 0
-        return 1
-    except Exception:
-        return 0
     
 # -----------------------------
 # Task 1
@@ -311,9 +272,49 @@ def grade_q5(student_fn):
         return 0
 
 # -----------------------------
+# Generic Grader Functions
+# -----------------------------
+def default_assert(output, expected):
+    return output == expected
+
+def float_assert(output, expected, tolerance=1e-5):
+    return abs(output - expected) < tolerance
+
+def list_float_assert(output, expected, tolerance=1e-5):
+    return all(abs(o - e) < tolerance for o, e in zip(output, expected))
+
+def grade_function(student_fn, solution_fn, test_cases, check_fn):
+    try:
+        for args in test_cases:
+            output = student_fn(*args)
+            expected = solution_fn(*args)
+            if not check_fn(output, expected):
+                return 0
+        return 1
+    except Exception:
+        return 0
+    
+def grade_class(student_class, solution_class, test_cases, check_fn):
+    try:
+        for X_train, y_train, X_test, k in test_cases:
+            output_class = student_class(k)
+            output_class.fit(X_train, y_train)
+            output = output_class.predict(X_test)
+
+            expected_class = solution_class(k)
+            expected_class.fit(X_train, y_train)
+            expected = expected_class.predict(X_test)
+            if not check_fn(output, expected):
+                return 0
+        return 1
+    except Exception:
+        return 0
+    
+# -----------------------------
 # Autograde Workflow
 # -----------------------------
 TASKS = [
+    # (type, name, solution, check_type, test_cases, grade_weight)
     ("function", "euclidean_distance", euclidean_distance_solution, float_assert, TC_1, GRADE_DISTRIBUTION[0]),
     ("function", "get_k_nearest_neighbors", get_k_nearest_neighbors_solution, default_assert, TC_2, GRADE_DISTRIBUTION[1]),
     ("function", "knn_majority_vote", knn_majority_vote_solution, default_assert, TC_3_1, GRADE_DISTRIBUTION[2]), 
