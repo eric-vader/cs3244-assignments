@@ -4,10 +4,11 @@ from nbconvert import PythonExporter
 import importlib.util
 import sys
 import math
-from collections import Counter
 import pandas as pd
-from sklearn.datasets import fetch_lfw_people
-from sklearn.model_selection import train_test_split
+from sklearn.datasets import load_iris as load_dataset
+from sklearn.metrics import get_scorer
+from sklearn.model_selection import StratifiedKFold
+import numpy as np
 from tqdm import tqdm
 from contextlib import redirect_stdout
 import io
@@ -19,7 +20,18 @@ sys.dont_write_bytecode = True
 BASE_DIR = os.path.dirname(os.path.abspath(__file__))
 NOTEBOOK_FOLDER = os.path.join(BASE_DIR, "notebooks")
 OUTPUT_CSV = os.path.join(BASE_DIR, "a2_grades.csv")
-GRADE_DISTRIBUTION = [1, 1, 1, 1, 2, 2, 1]
+GRADE_DISTRIBUTION = {
+    "1.1": 1,
+    "1.2": 3,
+    "2.1": 1,
+    "2.2": 1,
+    "2.3": 1,
+    "2.4": 3,
+    "2.5": 2,
+    # "2.6": 2,
+    # "2.7": 1,
+    "3": 2
+}
 
 # -----------------------------
 # Loading Functions
@@ -292,64 +304,288 @@ def majority_class_solution(y):
                 majority_class = label
         
         return majority_class
-"""
+
 # -----------------------------
-# Task 4.2
+# Task 2.4
 # -----------------------------
-TC_4_2 = [
-    # (X_train, y_train, X_test, k)
+TC_2_4 = [
+    # (X, y, n_unique_classes)
     # General test case
-    ([[1], [2], [3], [4], [5]], [10.0, 20.0, 30.0, 40.0, 50.0], [[2.5], [4.5]], 3),
-    ([[1, 1], [2, 2], [3, 3]], [10.0, 20.0, 30.0], [[1.2, 1.2], [2.8, 2.8], [0.5, 0.5]], 1),
-    ([[1, 5], [2, 1], [3, 6], [4, 2], [5, 7]], [50.0, 10.0, 60.0, 20.0, 70.0], [[2.5, 3.0]], 2),
-    ([[10], [20], [30]], [100.0, 200.0, 300.0], [[15]], 3)
+    ([['red'], ['blue'], ['red'], ['green'], ['blue']], ['yes', 'no', 'yes', 'no', 'no'], 2),
+    ([[2.0], [4.0], [6.0], [8.0], [10.0]], ['yes', 'yes', 'no', 'no', 'no'], 2),
+    ([['same'], ['same'], ['same']], ['yes', 'yes', 'yes'], 1),
+    ([['x'], ['y'], ['x'], ['z']], [2, 1, 2, 1], 2),
+    ([[True], [False], [True], [False]], ['yes', 'no', 'yes', 'no'], 2),
+    ([['1'], ['2'], ['3'], ['1']], ['a', 'b', 'c', 'a'], 3),
+
+    # Tie-breaker
+    ([['a', 2.0], ['a', 4.0], ['b', 6.0], ['b', 8.0]], ['yes', 'yes', 'no', 'no'], 2),
+
+    # No valid split
+    ([[0], [0], [0]], ['yes', 'no', 'yes'], 2),    
+    ([[1], [2], [3], [4]], ['yes', 'yes', 'yes', 'yes'], 1),
+    ([[8.0], [2.0], [10.0], [4.0], [6.0]], ['no', 'yes', 'no', 'yes', 'no'], 2),
+
+    # Empty dataset
+    ([], [], 2),
+
+    # Complex tie-breaker
+    (
+        [
+            [2.5, 'A',  1.2, 10.0, 'red'],
+            [3.5, 'B',  3.1, 15.0, 'blue'],
+            [2.0, 'A',  1.3,  9.5, 'red'],
+            [4.0, 'B',  3.0, 14.0, 'green'],
+            [3.8, 'A',  2.9, 13.5, 'blue'],
+            [4.1, 'B',  3.2, 14.5, 'green'],
+            [1.8, 'A',  1.1, 10.5, 'red'],
+            [3.6, 'B',  3.3, 15.5, 'blue'],
+        ],
+        ['yes', 'no', 'yes', 'no', 'no', 'no', 'yes', 'no'],
+        2
+    ),
+    (
+        [
+            ['red', 2.5, 'A',  1.2, 10.0],
+            ['blue', 3.5, 'B',  3.1, 15.0],
+            ['red', 2.0, 'A',  1.3,  9.5],
+            ['green', 4.0, 'B',  3.0, 14.0],
+            ['blue', 3.8, 'A',  2.9, 13.5],
+            ['green', 4.1, 'B',  3.2, 14.5],
+            ['red', 1.8, 'A',  1.1, 10.5],
+            ['blue', 3.6, 'B',  3.3, 15.5],
+        ],
+        ['yes', 'no', 'yes', 'no', 'no', 'no', 'yes', 'no'],
+        2
+    ),
+    (
+        [
+            ['A', 1.2, 10.0, 'red', 2.5],
+            ['B', 3.1, 15.0, 'blue', 3.5],
+            ['A', 1.3, 9.5, 'red', 2.0],
+            ['B', 3.0, 14.0, 'green', 4.0],
+            ['A', 2.9, 13.5, 'blue', 3.8],
+            ['B', 3.2, 14.5, 'green', 4.1],
+            ['A', 1.1, 10.5, 'red', 1.8],
+            ['B', 3.3, 15.5, 'blue', 3.6],
+        ],
+        ['yes', 'no', 'yes', 'no', 'no', 'no', 'yes', 'no'],
+        2
+    )
 ]
 
-class KNNRegressor_solution:
-    def __init__(self, k=3):
-        self.k = k
-        self.training_data = [] 
+def find_best_split_solution(X, y, n_unique_classes=2):
+    best_gain = -1.0
+    best_feature_idx = None
+    best_split_type = None
+    best_split_details = None
+    featureType = None
+    
+    if len(X) == 0:
+        return (best_gain, best_feature_idx, best_split_type, best_split_details)
+    
+    for featureInd in range(len(X[0])): # each feature in input
+        try:
+            X[0][featureInd] / 2
+            featureType = "continuous"
+        except:
+            featureType = "categorical"
+
+        if featureType == "continuous":
+            pairs = sorted(zip(X, y), key=lambda pair: pair[0][featureInd])
+            X_sorted, y_sorted = map(list, zip(*pairs))
+            for ind in range(1, len(X_sorted)): # Go through all splits
+                if X_sorted[ind - 1] == X_sorted[ind]:
+                    continue
+                gain = information_gain_solution(y, [y_sorted[:ind], y_sorted[ind:]], n_unique_classes)
+                if gain > best_gain and gain > 0:
+                    best_gain = gain
+                    best_feature_idx = featureInd
+                    best_split_type = featureType
+                    best_split_details = {
+                        "split_value" : (X_sorted[ind - 1][featureInd] + X_sorted[ind][featureInd]) / 2,
+                        "left_X" : X_sorted[:ind],
+                        "left_y" : y_sorted[:ind],
+                        "right_X" : X_sorted[ind:],
+                        "right_y" : y_sorted[ind:]
+                    }
+                    
+        else: # categorical feature
+            childArraysDict = {}
+            for ind in range(len(X)):
+                if X[ind][featureInd] not in childArraysDict:
+                    childArraysDict[X[ind][featureInd]] = {'X': [], 'y': []}
+                childArraysDict[X[ind][featureInd]]['y'].append(y[ind])
+                childArraysDict[X[ind][featureInd]]['X'].append(X[ind])
+            childArrays = [x['y'] for x in childArraysDict.values()]
+            if len(childArrays) == 1:
+                continue
+            gain = information_gain_solution(y, childArrays, n_unique_classes)
+            if gain > best_gain and gain > 0:
+                best_gain = gain
+                best_feature_idx = featureInd
+                best_split_type = featureType
+                best_split_details = childArraysDict
+
+    return (best_gain, best_feature_idx, best_split_type, best_split_details)
+
+# -----------------------------
+# Task 2.5
+# -----------------------------
+TC_2_5 = [
+    # (X, y, depth, max_depth, n_unique_classes)
+    # General test case
+    ([[1], [2], [3]], [0, 1, 0], 2, 2, 2),
+    ([[1], [2], [3]], [0, 0, 0], 0, 5, 2),
+    ([[1], [2], [10], [12]], [0, 0, 1, 1], 0, 2, 2),
+    ([['Red'], ['Blue'], ['Red'], ['Green']], [0, 1, 0, 2], 0, 2, 3),
+    ([[1], [2], [3]], [0, 0, 0], 0, 5, 2),
+    ([[10], [2], [12], [3], [1]], [0, 1, 0, 1, 1], 0, 2, 2),
+    ([['A'], ['B'], ['A'], ['C']], [0, 1, 0, 1], 0, 2, 2),
+    ([[10], [2], [12], [3], [1]], [0, 1, 0, 1, 1], 0, 1, 2),
+    ([[1], [2], [3]], [0, 1, 0], 0, 0, 2),
+    ([[1], [2], [3], [4]], [0, 1, 2, 3], 0, 5, 4),
+    ([[5], [5], [5]], [1, 1, 0], 0, 3, 2),
+    ([[10, 'A'], [20, 'B'], [15, 'A'], [25, 'C']], [0, 1, 0, 1], 0, 3, 2),
+    ([[42]], [1], 0, 3, 1),
+
+    # Empty List
+    ([], [0, 1, 0], 0, 5, 2),
+    ([], [], 0, 3, 0),
+
+    # Complex Case
+    (
+        [
+            [1.0, 'A', 0, 'X', 0.1, 10.0],
+            [1.2, 'A', 1, 'X', 0.2, 10.5],
+            [1.4, 'A', 0, 'X', 0.3, 11.0],
+            [2.0, 'B', 1, 'Y', 0.4, 11.5],
+            [2.2, 'B', 0, 'Y', 0.5, 12.0],
+            [2.4, 'B', 1, 'Y', 0.6, 12.5],
+            [3.0, 'C', 0, 'Z', 0.7, 13.0],
+            [3.2, 'C', 1, 'Z', 0.8, 13.5],
+            [3.4, 'C', 0, 'Z', 0.9, 14.0],
+            [4.0, 'D', 1, 'X', 1.0, 14.5],
+            [4.2, 'D', 0, 'Y', 1.1, 15.0],
+            [4.4, 'D', 1, 'Z', 1.2, 15.5],
+            [5.0, 'E', 0, 'X', 1.3, 16.0],
+            [5.2, 'E', 1, 'Y', 1.4, 16.5],
+            [5.4, 'E', 0, 'Z', 1.5, 17.0],
+        ],
+        [0, 1, 2, 0, 1, 2, 0, 1, 2, 0, 1, 2, 0, 1, 2],
+        0,
+        4,
+        5
+    ),
+]
+
+def build_tree_recursive_solution(X, y, depth, max_depth, n_unique_classes):
+    # Base Cases:
+    if depth == max_depth or len(set(y)) == 1:
+        return majority_class_solution(y)
+    
+    if not X:
+        return majority_class_solution(y) 
+
+    # Pass n_unique_classes to find_best_split
+    best_overall_gain, best_overall_feature_index, best_overall_split_type, best_overall_split_details = \
+        find_best_split_solution(X, y, n_unique_classes)
+    
+    if best_overall_gain <= 0: 
+        return majority_class_solution(y) 
+
+    current_nodemajority_class = majority_class_solution(y)
+
+    # Build child nodes based on the best overall split found
+    if best_overall_split_type == 'continuous':
+        return {
+            'feature': best_overall_feature_index,
+            'split_type': 'continuous',
+            'split_value': best_overall_split_details['split_value'],
+            # Pass n_unique_classes recursively
+            'left': build_tree_recursive_solution(best_overall_split_details['left_X'], best_overall_split_details['left_y'], depth + 1, max_depth, n_unique_classes),
+            'right': build_tree_recursive_solution(best_overall_split_details['right_X'], best_overall_split_details['right_y'], depth + 1, max_depth, n_unique_classes),
+            'default_prediction': current_nodemajority_class 
+        }
+    else: # best_overall_split_type == 'categorical'
+        children_nodes = {}
+        for category_val, data in best_overall_split_details.items():
+            # Pass n_unique_classes recursively
+            children_nodes[category_val] = build_tree_recursive_solution(data['X'], data['y'], depth + 1, max_depth, n_unique_classes)
+        
+        return {
+            'feature': best_overall_feature_index,
+            'split_type': 'categorical',
+            'children_map': children_nodes, 
+            'default_prediction': current_nodemajority_class 
+        }
+    
+# -----------------------------
+# Task 2.6
+# -----------------------------
+TC_2_6 = [
+
+]
+
+def predict_one_instance_solution(x_instance, tree_node):
+    if not isinstance(tree_node, dict): # Leaf node (contains the predicted class directly)
+        return tree_node
+    
+    # Check if the feature index exists in the input 'x_instance'
+    feature_idx = tree_node['feature']
+    if feature_idx >= len(x_instance):
+        # This indicates an input 'x_instance' is shorter than expected by the tree structure.
+        # Fallback to the default prediction stored at the node.
+        return tree_node.get('default_prediction', None) 
+
+    feature_val = x_instance[feature_idx]
+
+    if tree_node['split_type'] == 'continuous':
+        split_value = tree_node['split_value']
+        if feature_val < split_value:
+            return predict_one_instance_solution(x_instance, tree_node['left'])
+        else:
+            return predict_one_instance_solution(x_instance, tree_node['right'])
+    
+    else: # tree_node['split_type'] == 'categorical':
+        # Use .get() with the default_prediction as fallback for unseen categories
+        next_node = tree_node['children_map'].get(feature_val)
+        if next_node is not None:
+             return predict_one_instance_solution(x_instance, next_node)
+        else:
+             # Unseen category encountered, use the default prediction for this node
+             return tree_node['default_prediction']
+        
+# -----------------------------
+# Task 2.7
+# -----------------------------
+TC_2_7 = [
+
+]
+
+class DecisionTreeClassifier_Solution:
+    def __init__(self, max_depth=2):
+        self.max_depth = max_depth
+        self.tree = None 
+        self.n_unique_classes = None 
 
     def fit(self, X, y):
-        self.training_data = list(zip(X, y))
+        self.n_unique_classes = len(set(y))
+        if self.n_unique_classes <= 1:
+            self.tree = majority_class_solution(y) 
+            return
+        self.tree = build_tree_recursive_solution(X, y, depth=0, max_depth=self.max_depth, n_unique_classes=self.n_unique_classes)
 
-    def predict(self, X_test):
-        predictions = []
-        # Separate training features and target values from the stored training_data
-        # self.training_data is a list of (feature_vector, target_value) tuples
-        X_train_fit = [item[0] for item in self.training_data]
-        y_train_fit = [item[1] for item in self.training_data]
-
-        for test_point in X_test:
-            # Call the knn_regression function for each test point
-            predicted_value = knn_regression_solution(X_train_fit, y_train_fit, test_point, self.k)
-            predictions.append(predicted_value)
-        return predictions
+    def predict(self, X):
+        if not isinstance(self.tree, dict):
+            return [self.tree for _ in X]
+        return [predict_one_instance_solution(x_instance, self.tree) for x_instance in X]
     
 # -----------------------------
 # Task 3
 # -----------------------------
 ACCURACY_THRESHOLD = 0.5
 
-def grade_q5(student_fn):
-    lfw_people = fetch_lfw_people(min_faces_per_person=70, resize=0.4)
-    X = lfw_people.data  # Flattened images
-    y = lfw_people.target
-
-    # Split into training and test sets
-    X_train, X_test, y_train, y_test = train_test_split(
-        X, y, test_size=0.25, random_state=42)
-
-    try:
-        model = student_fn(X_train, y_train)
-        predictions = model.predict(X_test)
-        if len(predictions) != len(X_test):
-            return 0
-        accuracy_score = model.score(X_test, y_test)
-        return 1 if accuracy_score > ACCURACY_THRESHOLD else 0
-    except Exception:
-        return 0
-"""
 # -----------------------------
 # Generic Grader Functions
 # -----------------------------
@@ -361,6 +597,29 @@ def float_assert(output, expected, tolerance=1e-5):
 
 def list_float_assert(output, expected, tolerance=1e-5):
     return all(abs(o - e) < tolerance for o, e in zip(output, expected))
+
+def q24_assert(output, expected, tolerance=1e-5):
+    output_gain, output_feature_idx, output_split_type, output_split_details = output
+    expected_gain, expected_feature_idx, expected_split_type, expected_split_details = expected
+
+    gain_assert = float_assert(output_gain, expected_gain, tolerance)
+    feature_idx_assert = default_assert(output_feature_idx, expected_feature_idx)
+    split_type_assert = default_assert(output_split_type, expected_split_type)
+
+    if not (gain_assert and feature_idx_assert and split_type_assert):
+        return False
+    
+    split_details_assert = True
+    if expected_split_type == "categorical":
+        split_details_assert = split_details_assert and default_assert(output_split_details, expected_split_details)
+    elif expected_split_type == "continuous":
+        split_details_assert = split_details_assert and float_assert(output_split_details['split_value'], expected_split_details['split_value'], tolerance)
+        split_details_assert = split_details_assert and default_assert(output_split_details['left_X'].sort(), expected_split_details['left_X'].sort())
+        split_details_assert = split_details_assert and default_assert(output_split_details['left_y'].sort(), expected_split_details['left_y'].sort())
+        split_details_assert = split_details_assert and default_assert(output_split_details['right_X'].sort(), expected_split_details['right_X'].sort())
+        split_details_assert = split_details_assert and default_assert(output_split_details['right_y'].sort(), expected_split_details['right_y'].sort())
+
+    return split_details_assert
 
 def grade_function(student_fn, solution_fn, test_cases, check_fn):
     try:
@@ -389,18 +648,43 @@ def grade_class(student_class, solution_class, test_cases, check_fn):
     except Exception:
         return 0
     
+def grade_model(student_fn):
+    dataset = load_dataset()
+    X, y = dataset.data, dataset.target
+
+    # Split into training and test sets
+    try:
+        cv = StratifiedKFold(n_splits=5, shuffle=True, random_state=42)
+        scores = []
+        for train_idx, test_idx in cv.split(X, y):
+            X_train_cv, X_test_cv = X[train_idx], X[test_idx]
+            y_train_cv, y_test_cv = y[train_idx], y[test_idx]
+            model_cv = student_fn(X_train_cv, y_train_cv)
+            scorer = get_scorer("accuracy")
+            score = scorer(model_cv, X_test_cv, y_test_cv)
+            scores.append(score)
+
+        scores = np.array(scores)
+        accuracy_score = scores.mean()
+        return 1 if accuracy_score > ACCURACY_THRESHOLD else 0
+    except Exception:
+        return 0
+    
 # -----------------------------
 # Autograde Workflow
 # -----------------------------
 TASKS = [
     # (type, name, solution, check_type, test_cases, grade_weight)
-    ("function", "calculate_regionrss", calculate_regionrss_solution, float_assert, TC_1_1, GRADE_DISTRIBUTION[0]),
-    ("class", "DecisionTreeRegressor", DecisionTreeRegressor_solution, list_float_assert, TC_1_2, GRADE_DISTRIBUTION[1]),
-    ("function", "compute_entropy", compute_entropy_solution, float_assert, TC_2_1, GRADE_DISTRIBUTION[2]), 
-    ("function", "information_gain", information_gain_solution, float_assert, TC_2_2, GRADE_DISTRIBUTION[3]), 
-    ("function", "majority_class", majority_class_solution, default_assert, TC_2_3, GRADE_DISTRIBUTION[4]), 
-    # ("class", "KNNRegressor", KNNRegressor_solution, list_float_assert, TC_4_2, GRADE_DISTRIBUTION[5]),
-    # ("q5", "train_model", None, None, None, GRADE_DISTRIBUTION[6])
+    ("function", "calculate_regionrss", calculate_regionrss_solution, float_assert, TC_1_1, GRADE_DISTRIBUTION["1.1"]),
+    ("class", "DecisionTreeRegressor", DecisionTreeRegressor_solution, list_float_assert, TC_1_2, GRADE_DISTRIBUTION["1.2"]),
+    ("function", "compute_entropy", compute_entropy_solution, float_assert, TC_2_1, GRADE_DISTRIBUTION["2.1"]), 
+    ("function", "information_gain", information_gain_solution, float_assert, TC_2_2, GRADE_DISTRIBUTION["2.2"]), 
+    ("function", "majority_class", majority_class_solution, default_assert, TC_2_3, GRADE_DISTRIBUTION["2.3"]), 
+    ("function", "find_best_split", find_best_split_solution, q24_assert, TC_2_4, GRADE_DISTRIBUTION["2.4"]),
+    ("function", "build_tree_recursive", build_tree_recursive_solution, default_assert, TC_2_5, GRADE_DISTRIBUTION["2.5"]),
+    # ("function", "predict_one_instance", predict_one_instance_solution, ?, TC_2_6, GRADE_DISTRIBUTION["2.6"]),
+    # ("class", "DecisionTreeClassifier", DecisionTreeClassifier_Solution, ?, TC_2_7, GRADE_DISTRIBUTION["2.7"]),
+    ("model", "train_model", None, None, None, GRADE_DISTRIBUTION["3"])
 ]
 
 def autograde_folder(folder):
@@ -448,7 +732,8 @@ def autograde_folder(folder):
         os.remove(module_path)
 
     print(f"Failed to compile: {fails}")
-    return pd.DataFrame(rows, columns=["student_number", "1.1", "1.2", "2.1", "2.2", "2.3", "total"])
+    columns = ["student_number"] + sorted(GRADE_DISTRIBUTION.keys()) + ["total"]
+    return pd.DataFrame(rows, columns=columns)
 
 # -----------------------------
 # Save report to CSV

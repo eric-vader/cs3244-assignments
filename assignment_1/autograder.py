@@ -7,7 +7,9 @@ import math
 from collections import Counter
 import pandas as pd
 from sklearn.datasets import fetch_lfw_people
-from sklearn.model_selection import train_test_split
+from sklearn.metrics import get_scorer
+from sklearn.model_selection import StratifiedKFold
+import numpy as np
 from tqdm import tqdm
 from contextlib import redirect_stdout
 import io
@@ -19,7 +21,16 @@ sys.dont_write_bytecode = True
 BASE_DIR = os.path.dirname(os.path.abspath(__file__))
 NOTEBOOK_FOLDER = os.path.join(BASE_DIR, "notebooks")
 OUTPUT_CSV = os.path.join(BASE_DIR, "a1_grades.csv")
-GRADE_DISTRIBUTION = [1, 1, 1, 1, 2, 2, 1]
+GRADE_DISTRIBUTION = [1, 1, 1, 1, 2, 2, 2]
+GRADE_DISTRIBUTION = {
+    "1": 1,
+    "2": 1,
+    "3.1": 1,
+    "3.2": 1,
+    "4.1": 2,
+    "4.2": 2,
+    "5": 2,
+}
 
 # -----------------------------
 # Loading Functions
@@ -252,25 +263,6 @@ class KNNRegressor_solution:
 # -----------------------------
 ACCURACY_THRESHOLD = 0.5
 
-def grade_q5(student_fn):
-    lfw_people = fetch_lfw_people(min_faces_per_person=70, resize=0.4)
-    X = lfw_people.data  # Flattened images
-    y = lfw_people.target
-
-    # Split into training and test sets
-    X_train, X_test, y_train, y_test = train_test_split(
-        X, y, test_size=0.25, random_state=42)
-
-    try:
-        model = student_fn(X_train, y_train)
-        predictions = model.predict(X_test)
-        if len(predictions) != len(X_test):
-            return 0
-        accuracy_score = model.score(X_test, y_test)
-        return 1 if accuracy_score > ACCURACY_THRESHOLD else 0
-    except Exception:
-        return 0
-
 # -----------------------------
 # Generic Grader Functions
 # -----------------------------
@@ -309,19 +301,42 @@ def grade_class(student_class, solution_class, test_cases, check_fn):
         return 1
     except Exception:
         return 0
+
+def grade_model(student_fn):
+    lfw_people = fetch_lfw_people(min_faces_per_person=70, resize=0.4)
+    X = lfw_people.data  # Flattened images
+    y = lfw_people.target
+
+    # Split into training and test sets
+    try:
+        cv = StratifiedKFold(n_splits=5, shuffle=True, random_state=42)
+        scores = []
+        for train_idx, test_idx in cv.split(X, y):
+            X_train_cv, X_test_cv = X[train_idx], X[test_idx]
+            y_train_cv, y_test_cv = y[train_idx], y[test_idx]
+            model_cv = student_fn(X_train_cv, y_train_cv)
+            scorer = get_scorer("accuracy")
+            score = scorer(model_cv, X_test_cv, y_test_cv)
+            scores.append(score)
+
+        scores = np.array(scores)
+        accuracy_score = scores.mean()
+        return 1 if accuracy_score > ACCURACY_THRESHOLD else 0
+    except Exception:
+        return 0
     
 # -----------------------------
 # Autograde Workflow
 # -----------------------------
 TASKS = [
     # (type, name, solution, check_type, test_cases, grade_weight)
-    ("function", "euclidean_distance", euclidean_distance_solution, float_assert, TC_1, GRADE_DISTRIBUTION[0]),
-    ("function", "get_k_nearest_neighbors", get_k_nearest_neighbors_solution, default_assert, TC_2, GRADE_DISTRIBUTION[1]),
-    ("function", "knn_majority_vote", knn_majority_vote_solution, default_assert, TC_3_1, GRADE_DISTRIBUTION[2]), 
-    ("function", "knn_regression", knn_regression_solution, float_assert, TC_3_2, GRADE_DISTRIBUTION[3]), 
-    ("class", "KNNClassifier", KNNClassifier_solution, default_assert, TC_4_1, GRADE_DISTRIBUTION[4]), 
-    ("class", "KNNRegressor", KNNRegressor_solution, list_float_assert, TC_4_2, GRADE_DISTRIBUTION[5]),
-    ("q5", "train_model", None, None, None, GRADE_DISTRIBUTION[6])
+    ("function", "euclidean_distance", euclidean_distance_solution, float_assert, TC_1, GRADE_DISTRIBUTION["1"]),
+    ("function", "get_k_nearest_neighbors", get_k_nearest_neighbors_solution, default_assert, TC_2, GRADE_DISTRIBUTION["2"]),
+    ("function", "knn_majority_vote", knn_majority_vote_solution, default_assert, TC_3_1, GRADE_DISTRIBUTION["3.1"]), 
+    ("function", "knn_regression", knn_regression_solution, float_assert, TC_3_2, GRADE_DISTRIBUTION["3.2"]), 
+    ("class", "KNNClassifier", KNNClassifier_solution, default_assert, TC_4_1, GRADE_DISTRIBUTION["4.1"]), 
+    ("class", "KNNRegressor", KNNRegressor_solution, list_float_assert, TC_4_2, GRADE_DISTRIBUTION["4.2"]),
+    ("model", "train_model", None, None, None, GRADE_DISTRIBUTION["5"])
 ]
 
 def autograde_folder(folder):
@@ -358,8 +373,8 @@ def autograde_folder(folder):
                 score = grade_function(student_fn, solution_fn, test_cases, check_fn) * weight
             elif type == "class":
                 score = grade_class(student_fn, solution_fn, test_cases, check_fn) * weight
-            elif type == "q5":
-                score = grade_q5(student_fn) * weight
+            elif type == "model":
+                score = grade_model(student_fn) * weight
 
             row.append(score)
             total_score += score
@@ -369,7 +384,8 @@ def autograde_folder(folder):
         os.remove(module_path)
 
     print(f"Failed to compile: {fails}")
-    return pd.DataFrame(rows, columns=["student_number", "1", "2", "3.1", "3.2", "4.1", "4.2", "5", "total"])
+    columns = ["student_number"] + sorted(GRADE_DISTRIBUTION.keys()) + ["total"]
+    return pd.DataFrame(rows, columns=columns)
 
 # -----------------------------
 # Save report to CSV
