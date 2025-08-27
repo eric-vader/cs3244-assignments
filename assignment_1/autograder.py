@@ -13,6 +13,7 @@ import numpy as np
 from tqdm import tqdm
 from contextlib import redirect_stdout
 import io
+import ast
 
 # -----------------------------
 # Configuration
@@ -21,7 +22,6 @@ sys.dont_write_bytecode = True
 BASE_DIR = os.path.dirname(os.path.abspath(__file__))
 NOTEBOOK_FOLDER = os.path.join(BASE_DIR, "notebooks")
 OUTPUT_CSV = os.path.join(BASE_DIR, "a1_grades.csv")
-GRADE_DISTRIBUTION = [1, 1, 1, 1, 2, 2, 2]
 GRADE_DISTRIBUTION = {
     "1": 1,
     "2": 1,
@@ -44,14 +44,34 @@ def notebook_to_module(notebook_path, module_path):
     with open(module_path, "w") as f:
         f.write(source)
 
+class RemoveAsserts(ast.NodeTransformer):
+    def visit_Assert(self, node):
+        # Remove assert statements
+        return None
+
 def import_module_from_path(module_name, module_path):
-    """Dynamically import a module from a .py file"""
-    spec = importlib.util.spec_from_file_location(module_name, module_path)
-    module = importlib.util.module_from_spec(spec)
+    """Dynamically import a module from a .py file, ignoring asserts"""
+    # Read file content
+    with open(module_path, "r") as f:
+        source = f.read()
+
+    # Parse & remove asserts
+    tree = ast.parse(source, filename=module_path)
+    tree = RemoveAsserts().visit(tree)
+    ast.fix_missing_locations(tree)
+    code = compile(tree, module_path, "exec")
+
+    # Create module
+    module = importlib.util.module_from_spec(
+        importlib.util.spec_from_loader(module_name, loader=None)
+    )
     sys.modules[module_name] = module
+
+    # Capture prints while executing
     f = io.StringIO()
-    with redirect_stdout(f):   # capture all prints
-        spec.loader.exec_module(module)
+    with redirect_stdout(f):
+        exec(code, module.__dict__)
+
     return module
     
 # -----------------------------

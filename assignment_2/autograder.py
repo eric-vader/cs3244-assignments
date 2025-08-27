@@ -12,11 +12,11 @@ import numpy as np
 from tqdm import tqdm
 from contextlib import redirect_stdout
 import io
+import ast
 
 # -----------------------------
 # Configuration
 # -----------------------------
-sys.dont_write_bytecode = True
 BASE_DIR = os.path.dirname(os.path.abspath(__file__))
 NOTEBOOK_FOLDER = os.path.join(BASE_DIR, "notebooks")
 OUTPUT_CSV = os.path.join(BASE_DIR, "a2_grades.csv")
@@ -45,16 +45,36 @@ def notebook_to_module(notebook_path, module_path):
     with open(module_path, "w") as f:
         f.write(source)
 
+class RemoveAsserts(ast.NodeTransformer):
+    def visit_Assert(self, node):
+        # Remove assert statements
+        return None
+
 def import_module_from_path(module_name, module_path):
-    """Dynamically import a module from a .py file"""
-    spec = importlib.util.spec_from_file_location(module_name, module_path)
-    module = importlib.util.module_from_spec(spec)
+    """Dynamically import a module from a .py file, ignoring asserts"""
+    # Read file content
+    with open(module_path, "r") as f:
+        source = f.read()
+
+    # Parse & remove asserts
+    tree = ast.parse(source, filename=module_path)
+    tree = RemoveAsserts().visit(tree)
+    ast.fix_missing_locations(tree)
+    code = compile(tree, module_path, "exec")
+
+    # Create module
+    module = importlib.util.module_from_spec(
+        importlib.util.spec_from_loader(module_name, loader=None)
+    )
     sys.modules[module_name] = module
+
+    # Capture prints while executing
     f = io.StringIO()
-    with redirect_stdout(f):   # capture all prints
-        spec.loader.exec_module(module)
+    with redirect_stdout(f):
+        exec(code, module.__dict__)
+
     return module
-    
+
 # -----------------------------
 # Task 1.1
 # -----------------------------
@@ -634,7 +654,7 @@ def grade_function(student_fn, solution_fn, test_cases, check_fn):
     
 def grade_class(student_class, solution_class, test_cases, check_fn):
     try:
-        for X_train, y_train, X_test, k in test_cases:
+        for X_train, y_train, X_test, k in test_cases:  
             output_class = student_class(k)
             output_class.fit(X_train, y_train)
             output = output_class.predict(X_test)
