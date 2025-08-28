@@ -44,32 +44,35 @@ def notebook_to_module(notebook_path, module_path):
     with open(module_path, "w") as f:
         f.write(source)
 
-class RemoveAsserts(ast.NodeTransformer):
-    def visit_Assert(self, node):
-        # Remove assert statements
-        return None
+class KeepImportsAndDefs(ast.NodeTransformer):
+    def visit_Module(self, node):
+        # Keep imports and function/class definitions
+        new_body = [
+            n for n in node.body
+            if isinstance(n, (ast.Import, ast.ImportFrom, ast.FunctionDef, ast.AsyncFunctionDef, ast.ClassDef))
+        ]
+        node.body = new_body
+        return node
 
-def import_module_from_path(module_name, module_path):
-    """Dynamically import a module from a .py file, ignoring asserts"""
-    # Read file content
+def import_module_safe(module_name, module_path):
+    # Read source
     with open(module_path, "r") as f:
         source = f.read()
 
-    # Parse & remove asserts
+    # Parse AST and keep only imports + functions/classes
     tree = ast.parse(source, filename=module_path)
-    tree = RemoveAsserts().visit(tree)
+    tree = KeepImportsAndDefs().visit(tree)
     ast.fix_missing_locations(tree)
-    code = compile(tree, module_path, "exec")
 
-    # Create module
+    # Compile and execute in a new module
+    code = compile(tree, module_path, "exec")
     module = importlib.util.module_from_spec(
         importlib.util.spec_from_loader(module_name, loader=None)
     )
     sys.modules[module_name] = module
 
-    # Capture prints while executing
     f = io.StringIO()
-    with redirect_stdout(f):
+    with redirect_stdout(f):  # capture prints inside functions/classes
         exec(code, module.__dict__)
 
     return module
@@ -293,7 +296,7 @@ def float_assert(output, expected, tolerance=1e-5):
     return abs(output - expected) < tolerance
 
 def list_float_assert(output, expected, tolerance=1e-5):
-    return all(abs(o - e) < tolerance for o, e in zip(output, expected))
+    return len(output) == len(expected) and all(abs(o - e) < tolerance for o, e in zip(output, expected))
 
 def grade_function(student_fn, solution_fn, test_cases, check_fn):
     try:
@@ -308,12 +311,12 @@ def grade_function(student_fn, solution_fn, test_cases, check_fn):
     
 def grade_class(student_class, solution_class, test_cases, check_fn):
     try:
-        for X_train, y_train, X_test, k in test_cases:
-            output_class = student_class(k)
+        for X_train, y_train, X_test, class_arg in test_cases:  
+            output_class = student_class(class_arg)
             output_class.fit(X_train, y_train)
             output = output_class.predict(X_test)
 
-            expected_class = solution_class(k)
+            expected_class = solution_class(class_arg)
             expected_class.fit(X_train, y_train)
             expected = expected_class.predict(X_test)
             if not check_fn(output, expected):
@@ -348,16 +351,16 @@ def grade_model(student_fn):
 # -----------------------------
 # Autograde Workflow
 # -----------------------------
-TASKS = [
-    # (type, name, solution, check_type, test_cases, grade_weight)
-    ("function", "euclidean_distance", euclidean_distance_solution, float_assert, TC_1, GRADE_DISTRIBUTION["1"]),
-    ("function", "get_k_nearest_neighbors", get_k_nearest_neighbors_solution, default_assert, TC_2, GRADE_DISTRIBUTION["2"]),
-    ("function", "knn_majority_vote", knn_majority_vote_solution, default_assert, TC_3_1, GRADE_DISTRIBUTION["3.1"]), 
-    ("function", "knn_regression", knn_regression_solution, float_assert, TC_3_2, GRADE_DISTRIBUTION["3.2"]), 
-    ("class", "KNNClassifier", KNNClassifier_solution, default_assert, TC_4_1, GRADE_DISTRIBUTION["4.1"]), 
-    ("class", "KNNRegressor", KNNRegressor_solution, list_float_assert, TC_4_2, GRADE_DISTRIBUTION["4.2"]),
-    ("model", "train_model", None, None, None, GRADE_DISTRIBUTION["5"])
-]
+TASKS = {
+    "1": ("function", "euclidean_distance", euclidean_distance_solution, float_assert, TC_1),
+    "2": ("function", "get_k_nearest_neighbors", get_k_nearest_neighbors_solution, default_assert, TC_2),
+    "3.1": ("function", "knn_majority_vote", knn_majority_vote_solution, default_assert, TC_3_1), 
+    "3.2": ("function", "knn_regression", knn_regression_solution, float_assert, TC_3_2), 
+    "4.1": ("class", "KNNClassifier", KNNClassifier_solution, default_assert, TC_4_1), 
+    "4.2": ("class", "KNNRegressor", KNNRegressor_solution, list_float_assert, TC_4_2),
+    "5": ("model", "train_model", None, None, None)
+}
+
 
 def autograde_folder(folder):
     rows = []
@@ -376,7 +379,7 @@ def autograde_folder(folder):
         # Import module
         module_name = filename.replace(".ipynb", "")
         try:
-            module = import_module_from_path(module_name, module_path)
+            module = import_module_safe(module_name, module_path)
         except Exception:
             # Catch notebooks that fail to run
             fails.append(student_number)
@@ -387,7 +390,8 @@ def autograde_folder(folder):
         total_score = 0
 
         row = [student_number]
-        for type, task, solution_fn, check_fn, test_cases, weight in TASKS:
+        for task_num, (type, task, solution_fn, check_fn, test_cases) in TASKS.items():
+            weight = GRADE_DISTRIBUTION[task_num]
             student_fn = getattr(module, task)
             if type == "function":
                 score = grade_function(student_fn, solution_fn, test_cases, check_fn) * weight
@@ -404,7 +408,7 @@ def autograde_folder(folder):
         os.remove(module_path)
 
     print(f"Failed to compile: {fails}")
-    columns = ["student_number"] + sorted(GRADE_DISTRIBUTION.keys()) + ["total"]
+    columns = ["student_number"] + sorted(TASKS.keys()) + ["total"]
     return pd.DataFrame(rows, columns=columns)
 
 # -----------------------------

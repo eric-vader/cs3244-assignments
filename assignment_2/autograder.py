@@ -28,8 +28,8 @@ GRADE_DISTRIBUTION = {
     "2.3": 1,
     "2.4": 3,
     "2.5": 2,
-    # "2.6": 2,
-    # "2.7": 1,
+    "2.6": 2,
+    "2.7": 1,
     "3": 2
 }
 
@@ -45,32 +45,35 @@ def notebook_to_module(notebook_path, module_path):
     with open(module_path, "w") as f:
         f.write(source)
 
-class RemoveAsserts(ast.NodeTransformer):
-    def visit_Assert(self, node):
-        # Remove assert statements
-        return None
+class KeepImportsAndDefs(ast.NodeTransformer):
+    def visit_Module(self, node):
+        # Keep imports and function/class definitions
+        new_body = [
+            n for n in node.body
+            if isinstance(n, (ast.Import, ast.ImportFrom, ast.FunctionDef, ast.AsyncFunctionDef, ast.ClassDef))
+        ]
+        node.body = new_body
+        return node
 
-def import_module_from_path(module_name, module_path):
-    """Dynamically import a module from a .py file, ignoring asserts"""
-    # Read file content
+def import_module_safe(module_name, module_path):
+    # Read source
     with open(module_path, "r") as f:
         source = f.read()
 
-    # Parse & remove asserts
+    # Parse AST and keep only imports + functions/classes
     tree = ast.parse(source, filename=module_path)
-    tree = RemoveAsserts().visit(tree)
+    tree = KeepImportsAndDefs().visit(tree)
     ast.fix_missing_locations(tree)
-    code = compile(tree, module_path, "exec")
 
-    # Create module
+    # Compile and execute in a new module
+    code = compile(tree, module_path, "exec")
     module = importlib.util.module_from_spec(
         importlib.util.spec_from_loader(module_name, loader=None)
     )
     sys.modules[module_name] = module
 
-    # Capture prints while executing
     f = io.StringIO()
-    with redirect_stdout(f):
+    with redirect_stdout(f):  # capture prints inside functions/classes
         exec(code, module.__dict__)
 
     return module
@@ -145,7 +148,7 @@ TC_1_2 = [
     # ([1, 2, 3], [2, 4, 6], [], 2),
 ]
 
-class DecisionTreeRegressor_solution:
+class DTRegressor_solution:
     def __init__(self, max_depth=2):
         self.max_depth = max_depth
         self.tree = None  
@@ -544,7 +547,26 @@ def build_tree_recursive_solution(X, y, depth, max_depth, n_unique_classes):
 # Task 2.6
 # -----------------------------
 TC_2_6 = [
+    # ([X, y, depth, max_depth, n_unique_classes], x_instance)
+    ([[[3.0], [7.0], [2.0], [8.0]], [0, 1, 0, 1], 0, 1, 2], [2.5]),
+    ([[[3.0], [7.0], [2.0], [8.0]], [0, 1, 0, 1], 0, 1, 2], [6.0]),
+    ([[['apple'], ['banana'], ['apple'], ['orange']], [0, 1, 0, 1], 0, 1, 2], ['apple']),
+    ([[['apple'], ['banana'], ['apple'], ['orange']], [0, 1, 0, 1], 0, 1, 2], ['grape']),
+    ([[[10, 'A'], [2, 'B'], [12, 'A'], [3, 'B']], [0, 1, 0, 1], 0, 1, 2], [4, 'C']),
+    ([[['A', 10], ['B', 2], ['A', 12], ['C', 3]], [0, 1, 0, 1], 0, 1, 2], ['B', 5]),
+    ([[[10, 'red'], [2, 'blue'], [12, 'green'], [3, 'red']], [0, 1, 0, 1], 0, 2, 2], [4, 'red']),
+    ([[[2.0], [4.0], [6.0], [8.0]], [0, 0, 1, 1], 0, 1, 2], [4.0]),
+    ([[['red', 'circle'], ['blue', 'square'], ['red', 'triangle'], ['blue', 'circle']], [1, 0, 1, 0], 0, 2, 2], ['blue', 'triangle']),
+    ([[[1.0, 2.0], [3.0, 4.0], [5.0, 6.0], [7.0, 8.0]], [0, 0, 1, 1], 0, 2, 2], [10.0, 12.0]),
+    ([[[1, 'A'], [2, 'B'], [3, 'C'], [4, 'D']], [0, 1, 0, 1], 0, 2, 2], [2, 'B']),
+    ([[[1, 'x', 10], [2, 'y', 20], [1, 'x', 30], [2, 'y', 40]], [0, 1, 0, 1], 0, 2, 2], [1, 'z', 25]),
+    ([[[1.0], [1.2], [2.5]], [0, 0, 1], 0, 1, 2], [1.85]),
+    ([[[1.0], [2.0], [3.0], [4.0]], [0, 1, 0, 1], 0, 1, 2], [2.5]),
+    ([[[5], [6], [7], [8]], [1, 1, 1, 1], 0, 1, 1], [9]),
 
+    # Output majority
+    ([[['cat'], ['dog'], ['cat'], ['mouse']], [0, 1, 0, 1], 0, 1, 2], ['elephant']),
+    ([[[5], [5], [5], [5]], [2, 2, 1, 1], 0, 0, 2], [10]),
 ]
 
 def predict_one_instance_solution(x_instance, tree_node):
@@ -576,14 +598,51 @@ def predict_one_instance_solution(x_instance, tree_node):
              # Unseen category encountered, use the default prediction for this node
              return tree_node['default_prediction']
         
+def grade_q26(student_fn, solution_fn, test_cases, check_fn):
+    try:
+        for args, x_instance in test_cases:
+            tree = build_tree_recursive_solution(*args)
+            output = solution_fn(x_instance, tree)
+            expected = student_fn(x_instance, tree)
+            if not check_fn(output, expected):
+                return 0
+        return 1
+    except Exception:
+        return 0
+        
 # -----------------------------
 # Task 2.7
 # -----------------------------
 TC_2_7 = [
+    # (X, y, X_predict, max_depth)
+    # General Test Case
+    ([[1.0], [2.0], [3.0]], [0, 0, 0], [[10.0], [20.0]], 5),
+    ([[3.0], [7.0], [2.0], [8.0]], [0, 1, 0, 1], [[2.5], [6.0], [4.9], [5.1]], 1),
+    ([['red'], ['blue'], ['red'], ['green']], [0, 1, 0, 1], [['red'], ['blue'], ['yellow']], 1),
+    ([[1.0], [1.0], [1.0], [1.0]], [0, 1, 0, 1], [[1.0], [2.0], [0.0]], 3),
+    ([[1], [2], [3], [4]], [0, 1, 1, 1], [[10], [0], [2]], 0),
+    ([[1], [2], [6], [7]], [0, 0, 1, 1], [[1], [6], [4]], 3),
+    ([['cat'], ['dog'], ['dog'], ['cat']], [0, 1, 1, 0], [['cat'], ['dog'], ['rabbit'], ['horse'], ['snake']], 1),
 
+    # Multi-dimension X
+    (
+        [[10, 'apple'], [2, 'blue'], [12, 'banana'], [3, 'apple'], [4, 'orange']],
+        [0, 1, 0, 1, 0],
+        [[4, 'blue'], [6, 'banana'], [3, 'apple'], [1, 'orange'], [11, 'unknown']],
+        2
+    ),
+    (
+        [[1, 'red'], [2, 'blue'], [3, 'red'], [4, 'green']], 
+        [0, 0, 1, 1],
+        [[1, 'red'], [2, 'blue'], [3, 'green'], [10, 'blue']], 
+        1
+    ),
+
+    # Empty List
+    #  ([], [], [[1.0], [2.0]], 2),
 ]
 
-class DecisionTreeClassifier_Solution:
+class DTClassifier_Solution:
     def __init__(self, max_depth=2):
         self.max_depth = max_depth
         self.tree = None 
@@ -616,7 +675,7 @@ def float_assert(output, expected, tolerance=1e-5):
     return abs(output - expected) < tolerance
 
 def list_float_assert(output, expected, tolerance=1e-5):
-    return all(abs(o - e) < tolerance for o, e in zip(output, expected))
+    return len(output) == len(expected) and all(abs(o - e) < tolerance for o, e in zip(output, expected))
 
 def q24_assert(output, expected, tolerance=1e-5):
     output_gain, output_feature_idx, output_split_type, output_split_details = output
@@ -654,12 +713,13 @@ def grade_function(student_fn, solution_fn, test_cases, check_fn):
     
 def grade_class(student_class, solution_class, test_cases, check_fn):
     try:
-        for X_train, y_train, X_test, k in test_cases:  
-            output_class = student_class(k)
+        for X_train, y_train, X_test, class_arg in test_cases: 
+            
+            output_class = student_class(class_arg)
             output_class.fit(X_train, y_train)
             output = output_class.predict(X_test)
 
-            expected_class = solution_class(k)
+            expected_class = solution_class(class_arg)
             expected_class.fit(X_train, y_train)
             expected = expected_class.predict(X_test)
             if not check_fn(output, expected):
@@ -693,19 +753,18 @@ def grade_model(student_fn):
 # -----------------------------
 # Autograde Workflow
 # -----------------------------
-TASKS = [
-    # (type, name, solution, check_type, test_cases, grade_weight)
-    ("function", "calculate_regionrss", calculate_regionrss_solution, float_assert, TC_1_1, GRADE_DISTRIBUTION["1.1"]),
-    ("class", "DecisionTreeRegressor", DecisionTreeRegressor_solution, list_float_assert, TC_1_2, GRADE_DISTRIBUTION["1.2"]),
-    ("function", "compute_entropy", compute_entropy_solution, float_assert, TC_2_1, GRADE_DISTRIBUTION["2.1"]), 
-    ("function", "information_gain", information_gain_solution, float_assert, TC_2_2, GRADE_DISTRIBUTION["2.2"]), 
-    ("function", "majority_class", majority_class_solution, default_assert, TC_2_3, GRADE_DISTRIBUTION["2.3"]), 
-    ("function", "find_best_split", find_best_split_solution, q24_assert, TC_2_4, GRADE_DISTRIBUTION["2.4"]),
-    ("function", "build_tree_recursive", build_tree_recursive_solution, default_assert, TC_2_5, GRADE_DISTRIBUTION["2.5"]),
-    # ("function", "predict_one_instance", predict_one_instance_solution, ?, TC_2_6, GRADE_DISTRIBUTION["2.6"]),
-    # ("class", "DecisionTreeClassifier", DecisionTreeClassifier_Solution, ?, TC_2_7, GRADE_DISTRIBUTION["2.7"]),
-    ("model", "train_model", None, None, None, GRADE_DISTRIBUTION["3"])
-]
+TASKS = {
+    "1.1": ("function", "calculate_regionrss", calculate_regionrss_solution, float_assert, TC_1_1),
+    "1.2": ("class", "DTRegressor", DTRegressor_solution, list_float_assert, TC_1_2),
+    "2.1": ("function", "compute_entropy", compute_entropy_solution, float_assert, TC_2_1), 
+    "2.2": ("function", "information_gain", information_gain_solution, float_assert, TC_2_2), 
+    "2.3": ("function", "majority_class", majority_class_solution, default_assert, TC_2_3), 
+    "2.4": ("function", "find_best_split", find_best_split_solution, q24_assert, TC_2_4),
+    "2.5": ("function", "build_tree_recursive", build_tree_recursive_solution, default_assert, TC_2_5),
+    "2.6": ("2_6", "predict_one_instance", predict_one_instance_solution, float_assert, TC_2_6),
+    "2.7": ("class", "DTClassifier", DTClassifier_Solution, list_float_assert, TC_2_7),
+    "3": ("model", "train_model", None, None, None)
+}
 
 def autograde_folder(folder):
     rows = []
@@ -724,7 +783,7 @@ def autograde_folder(folder):
         # Import module
         module_name = filename.replace(".ipynb", "")
         try:
-            module = import_module_from_path(module_name, module_path)
+            module = import_module_safe(module_name, module_path)
         except Exception:
             # Catch notebooks that fail to run
             fails.append(student_number)
@@ -735,14 +794,17 @@ def autograde_folder(folder):
         total_score = 0
 
         row = [student_number]
-        for type, task, solution_fn, check_fn, test_cases, weight in TASKS:
+        for task_num, (type, task, solution_fn, check_fn, test_cases) in TASKS.items():
+            weight = GRADE_DISTRIBUTION[task_num]
             student_fn = getattr(module, task)
             if type == "function":
                 score = grade_function(student_fn, solution_fn, test_cases, check_fn) * weight
             elif type == "class":
                 score = grade_class(student_fn, solution_fn, test_cases, check_fn) * weight
-            # elif type == "q5":
-            #     score = grade_q5(student_fn) * weight
+            elif type == "model":
+                score = grade_model(student_fn) * weight
+            elif type == "2_6":
+                score = grade_q26(student_fn, solution_fn, test_cases, check_fn) * weight
 
             row.append(score)
             total_score += score
@@ -752,7 +814,7 @@ def autograde_folder(folder):
         os.remove(module_path)
 
     print(f"Failed to compile: {fails}")
-    columns = ["student_number"] + sorted(GRADE_DISTRIBUTION.keys()) + ["total"]
+    columns = ["student_number"] + sorted(TASKS.keys()) + ["total"]
     return pd.DataFrame(rows, columns=columns)
 
 # -----------------------------
