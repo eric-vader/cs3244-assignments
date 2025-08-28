@@ -103,10 +103,10 @@ TC_1_1 = [
     ([1.1, 2.2, 3.3], [4.4, 5.5]),
     
     # Empty Lists. Need to mention that this is possible.
-    # ([], [2, 4, 6]),
-    # ([], [4, 4, 4]),
-    # ([7, 7], []),
-    # ([], []),
+    ([], [2, 4, 6]),
+    ([], [4, 4, 4]),
+    ([7, 7], []),
+    ([], []),
 ]
 
 def calculate_regionrss_solution(y_left, y_right):
@@ -145,7 +145,7 @@ TC_1_2 = [
     ([1, 2, 3, 4], [10, 20, 30, 40], [1, 2, 3, 4], 100),
 
     # Empty Prediction Array
-    # ([1, 2, 3], [2, 4, 6], [], 2),
+    ([1, 2, 3], [2, 4, 6], [], 2),
 ]
 
 class DTRegressor_solution:
@@ -224,9 +224,6 @@ TC_2_1 = [
 
     # Single Class, handle log of base 1
     (['yes', 'yes', 'yes'], 1),
-
-    # Empty List
-    # ([], 2),
 ]
 
 def compute_entropy_solution(y, n_unique_classes=2):
@@ -268,7 +265,7 @@ TC_2_2 = [
     (['yes', 'no', 'yes'], [['yes', 'no', 'yes']], 2),
 
     # Empty Parent. Need to mention that this is possible.
-    # ([], [[]], 2),
+    ([], [[]], 2),
 ]
 
 def information_gain_solution(parent_y, list_of_child_ys, n_unique_classes=2):
@@ -297,7 +294,6 @@ TC_2_3 = [
     (['yes', 'no', 'yes', 'no'],),
     ([1, 2, 2, 3, 2],),
     (['cat'],),
-    ([],),
     (['x', 'x', 'x'],),
     ([3, 1, 3, 2, 2, 1, 1],),
     ([True, False, True],),
@@ -310,23 +306,23 @@ TC_2_3 = [
 ]
 
 def majority_class_solution(y):
-        counts = {}
-        for label in y:
-            counts[label] = counts.get(label, 0) + 1
+    counts = {}
+    for label in y:
+        counts[label] = counts.get(label, 0) + 1
 
-        max_count = -1 
-        majority_class = None
-        
-        # Get labels in sorted order to ensure deterministic tie-breaking (smallest label)
-        sorted_labels = sorted(counts.keys())
+    max_count = -1 
+    majority_class = None
+    
+    # Get labels in sorted order to ensure deterministic tie-breaking (smallest label)
+    sorted_labels = sorted(counts.keys())
 
-        for label in sorted_labels:
-            count = counts[label]
-            if count > max_count:
-                max_count = count
-                majority_class = label
-        
-        return majority_class
+    for label in sorted_labels:
+        count = counts[label]
+        if count > max_count:
+            max_count = count
+            majority_class = label
+    
+    return majority_class
 
 # -----------------------------
 # Task 2.4
@@ -350,7 +346,7 @@ TC_2_4 = [
     ([[8.0], [2.0], [10.0], [4.0], [6.0]], ['no', 'yes', 'no', 'yes', 'no'], 2),
 
     # Empty dataset
-    ([], [], 2),
+    # ([], [], 2),
 
     # Complex tie-breaker
     (
@@ -473,8 +469,8 @@ TC_2_5 = [
     ([[42]], [1], 0, 3, 1),
 
     # Empty List
-    ([], [0, 1, 0], 0, 5, 2),
-    ([], [], 0, 3, 0),
+    # ([], [0, 1, 0], 0, 5, 2),
+    # ([], [], 0, 3, 0),
 
     # Complex Case
     (
@@ -564,7 +560,7 @@ TC_2_6 = [
     ([[[1.0], [2.0], [3.0], [4.0]], [0, 1, 0, 1], 0, 1, 2], [2.5]),
     ([[[5], [6], [7], [8]], [1, 1, 1, 1], 0, 1, 1], [9]),
 
-    # Output majority
+    # No valid split
     ([[['cat'], ['dog'], ['cat'], ['mouse']], [0, 1, 0, 1], 0, 1, 2], ['elephant']),
     ([[[5], [5], [5], [5]], [2, 2, 1, 1], 0, 0, 2], [10]),
 ]
@@ -639,7 +635,7 @@ TC_2_7 = [
     ),
 
     # Empty List
-    #  ([], [], [[1.0], [2.0]], 2),
+    # ([], [], [[1.0], [2.0]], 2),
 ]
 
 class DTClassifier_Solution:
@@ -713,12 +709,11 @@ def grade_function(student_fn, solution_fn, test_cases, check_fn):
     
 def grade_class(student_class, solution_class, test_cases, check_fn):
     try:
+        i = 0
         for X_train, y_train, X_test, class_arg in test_cases: 
-            
             output_class = student_class(class_arg)
             output_class.fit(X_train, y_train)
             output = output_class.predict(X_test)
-
             expected_class = solution_class(class_arg)
             expected_class.fit(X_train, y_train)
             expected = expected_class.predict(X_test)
