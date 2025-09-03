@@ -6,6 +6,9 @@ __pycache__/
 # C extensions
 *.so
 
+assignment_1/submissions/
+assignment_2/submissions/
+
 # Distribution / packaging
 .Python
 build/

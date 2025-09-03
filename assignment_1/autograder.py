@@ -20,8 +20,9 @@ import ast
 # -----------------------------
 sys.dont_write_bytecode = True
 BASE_DIR = os.path.dirname(os.path.abspath(__file__))
-NOTEBOOK_FOLDER = os.path.join(BASE_DIR, "notebooks")
+NOTEBOOK_FOLDER = os.path.join(BASE_DIR, "submissions")
 OUTPUT_CSV = os.path.join(BASE_DIR, "a1_grades.csv")
+OUTPUT_TXT = os.path.join(BASE_DIR, "a1_fails.txt")
 GRADE_DISTRIBUTION = {
     "1": 1,
     "2": 1,
@@ -37,11 +38,11 @@ GRADE_DISTRIBUTION = {
 # -----------------------------
 def notebook_to_module(notebook_path, module_path):
     """Convert a notebook to a Python script"""
-    with open(notebook_path) as f:
+    with open(notebook_path, "r", encoding="utf-8") as f:
         nb = nbformat.read(f, as_version=4)
     exporter = PythonExporter()
     source, _ = exporter.from_notebook_node(nb)
-    with open(module_path, "w") as f:
+    with open(module_path, "w", encoding="utf-8") as f:
         f.write(source)
 
 class KeepImportsAndDefs(ast.NodeTransformer):
@@ -56,7 +57,7 @@ class KeepImportsAndDefs(ast.NodeTransformer):
 
 def import_module_safe(module_name, module_path):
     # Read source
-    with open(module_path, "r") as f:
+    with open(module_path, "r", encoding="utf-8") as f:
         source = f.read()
 
     # Parse AST and keep only imports + functions/classes
@@ -70,10 +71,9 @@ def import_module_safe(module_name, module_path):
         importlib.util.spec_from_loader(module_name, loader=None)
     )
     sys.modules[module_name] = module
+    module.__dict__["print"] = lambda *args, **kwargs: None
 
-    f = io.StringIO()
-    with redirect_stdout(f):  # capture prints inside functions/classes
-        exec(code, module.__dict__)
+    exec(code, module.__dict__)
 
     return module
     
@@ -98,7 +98,7 @@ TC_1 = [
     ([-1, 2], [3, -5]),
 
     # Empty List
-    ([], []),
+    # ([], []),
     
     # List and tuple
     ([1, 2], (1, 2))
@@ -121,7 +121,7 @@ TC_2 = [
     ([([10, 10], 'Apple'),([1, 1], 'Banana'),([2, 2], 'Banana'),([8, 8], 'Apple')], [2.5, 2.5], 2),
 
     # Non-string labels
-    ([([1, 2], 1),([3, 4], 'B')], [2.5, 2.5], 1),
+    # ([([1, 2], 1),([3, 4], 'B')], [2.5, 2.5], 1),
     
     # Order-preservation check
     ([([1, 2], True), ([3, 4], False)], [2.0, 3.0], 2),
@@ -129,7 +129,7 @@ TC_2 = [
 
     # Training point same as test point
     ([([0, 0], 'X'),([3, 0], 'Y')], [0, 0], 1),
-    ([([1, 1], 'A')], [1, 1], 1),
+    # ([([1, 1], 'A')], [1, 1], 1),
 ]
 
 def get_k_nearest_neighbors_solution(training_data, test_point, k):
@@ -223,7 +223,7 @@ TC_4_1 = [
     ([[1.2, 2.1, 3.6], [4.1, 5.9, 6.2], [2.5, 3.1, 4.9], [-5, 6, -7], [1.3, 7.4, 0.5]], ['A', 'B', 'A', 'B', 'A'], [[2, 3, 3.5], [4.5, 5.5, 6.5]], 3),
 
     # Non-string labels
-    ([[1, 2], [3, 4]], ['A', 5], [[2, 3]], 1),
+    # ([[1, 2], [3, 4]], ['A', 5], [[2, 3]], 1),
 
     # Training point same as test point
     ([[1, 1], [1, 1], [1, 1]], ['A', 'A', 'A'], [[1, 1]], 3),
@@ -306,8 +306,9 @@ def grade_function(student_fn, solution_fn, test_cases, check_fn):
             if not check_fn(output, expected):
                 return 0
         return 1
-    except Exception:
-        return 0
+    except Exception as e:
+        # print(e)
+        return "E"
     
 def grade_class(student_class, solution_class, test_cases, check_fn):
     try:
@@ -322,8 +323,9 @@ def grade_class(student_class, solution_class, test_cases, check_fn):
             if not check_fn(output, expected):
                 return 0
         return 1
-    except Exception:
-        return 0
+    except Exception as e:
+        # print(e)
+        return "E"
 
 def grade_model(student_fn):
     lfw_people = fetch_lfw_people(min_faces_per_person=70, resize=0.4)
@@ -346,7 +348,7 @@ def grade_model(student_fn):
         accuracy_score = scores.mean()
         return 1 if accuracy_score > ACCURACY_THRESHOLD else 0
     except Exception:
-        return 0
+        return "E"
     
 # -----------------------------
 # Autograde Workflow
@@ -358,11 +360,19 @@ TASKS = {
     "3.2": ("function", "knn_regression", knn_regression_solution, float_assert, TC_3_2), 
     "4.1": ("class", "KNNClassifier", KNNClassifier_solution, default_assert, TC_4_1), 
     "4.2": ("class", "KNNRegressor", KNNRegressor_solution, list_float_assert, TC_4_2),
-    "5": ("model", "train_model", None, None, None)
+    # "5": ("model", "train_model", None, None, None)
 }
 
 
 def autograde_folder(folder):
+    skips = [
+        "jenniferluxinting_130220_7126802_Jennifer Lu XinTing-A0281412N-assignment1",
+        "linmyat_128095_7157565_LinMyat-A0271863X-assignment1",
+        "nyanlin_LATE_139124_7161381_Nyan_L_A0286561W_assignment1",
+        "ongjiaxi_126929_7140279_Ong Jia Xi-A0276092Y-assignment1",
+        "wongjiweixylia_135768_7152936_Xylia_Wong_A0283133L_assignment1"
+    ]
+
     rows = []
     fails = []
     for filename in tqdm(os.listdir(folder)):
@@ -372,18 +382,25 @@ def autograde_folder(folder):
         nb_path = os.path.join(folder, filename)
         module_path = nb_path.replace(".ipynb", ".py")
         student_number = filename[:-6]
+
+        if student_number in skips:
+            row = [student_number] + ["X"] * 7
+            rows.append(row)
+            continue
         
-        # Convert notebook -> module
-        notebook_to_module(nb_path, module_path)
-        
-        # Import module
-        module_name = filename.replace(".ipynb", "")
         try:
+            # Convert notebook -> module
+            notebook_to_module(nb_path, module_path)
+
+            # Import module
+            module_name = filename.replace(".ipynb", "")
             module = import_module_safe(module_name, module_path)
-        except Exception:
+        except Exception as e:
+            # print(e)
             # Catch notebooks that fail to run
             fails.append(student_number)
-            os.remove(module_path)
+            if os.path.exists(module_path):
+                os.remove(module_path)
             continue
 
         # Grade function
@@ -394,14 +411,15 @@ def autograde_folder(folder):
             weight = GRADE_DISTRIBUTION[task_num]
             student_fn = getattr(module, task)
             if type == "function":
-                score = grade_function(student_fn, solution_fn, test_cases, check_fn) * weight
+                score = grade_function(student_fn, solution_fn, test_cases, check_fn) 
             elif type == "class":
-                score = grade_class(student_fn, solution_fn, test_cases, check_fn) * weight
+                score = grade_class(student_fn, solution_fn, test_cases, check_fn) 
             elif type == "model":
-                score = grade_model(student_fn) * weight
+                score = grade_model(student_fn) 
 
+            score *= 1 if isinstance(score, str) else weight
             row.append(score)
-            total_score += score
+            total_score += 0 if isinstance(score, str) else score
         row.append(total_score)
         rows.append(row)
 
@@ -409,7 +427,7 @@ def autograde_folder(folder):
 
     print(f"Failed to compile: {fails}")
     columns = ["student_number"] + sorted(TASKS.keys()) + ["total"]
-    return pd.DataFrame(rows, columns=columns)
+    return pd.DataFrame(rows, columns=columns), fails
 
 # -----------------------------
 # Save report to CSV
@@ -417,10 +435,17 @@ def autograde_folder(folder):
 def save_to_csv(report, csv_file):
     report.to_csv(csv_file, index = False)
 
+def save_fails(fails, txt_file):
+    with open(txt_file, "w") as f:
+        for item in fails:
+            f.write(f"{item}\n")
+
+
 # -----------------------------
 # Run autograder
 # -----------------------------
 if __name__ == "__main__":
-    final_report = autograde_folder(NOTEBOOK_FOLDER)
+    final_report, fails = autograde_folder(NOTEBOOK_FOLDER)
     save_to_csv(final_report, OUTPUT_CSV)
+    save_fails(fails, OUTPUT_TXT)
     print(f"Grading completed! Results saved to {OUTPUT_CSV}")
