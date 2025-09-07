@@ -3,6 +3,7 @@ import importlib.util
 import io
 import math
 import os
+import re
 import sys
 from collections import Counter
 from contextlib import redirect_stdout
@@ -440,23 +441,23 @@ TASKS = {
 def autograde_folder(folder):
     all_scores = []
     fails = []
-    for filename in tqdm(os.listdir(folder)):
+    for filename in tqdm(os.listdir(folder)[:3]):
         if not filename.endswith(".ipynb"):
             continue
 
         nb_path = os.path.join(folder, filename)
         module_path = nb_path.replace(".ipynb", ".py")
-        student_number = filename[:-6]
+        file = filename[:-6]
         
         try:
             # Convert notebook -> module
             notebook_to_module(nb_path, module_path)
-            module_name = filename.replace(".ipynb", "")
+            module_name = file.replace(".ipynb", "")
             module = import_module_safe(module_name, module_path)
         except Exception as e:
             # Catch notebooks that fail to run
-            fails.append(f"{student_number}: {str(e)}")
-            scores = [student_number] + ["X"] * (len(TASKS.keys()) + 1)
+            fails.append(f"{file}: {str(e)}")
+            scores = [file] + ["X"] * (len(TASKS.keys()) + 1)
             all_scores.append(scores)
             if os.path.exists(module_path):
                 os.remove(module_path)
@@ -464,7 +465,9 @@ def autograde_folder(folder):
 
         # Grade function
         total_score = 0
-        scores = [student_number]
+        name = file.replace("-", "_").split("_")[0]
+        student_number = re.search(r"(A\d{7}[A-Z])", file).group(1)
+        scores = [file, student_number, name]
         for task_num, (type, task, solution_fn, check_fn, test_cases) in TASKS.items():
             weight = GRADE_DISTRIBUTION[task_num]
             student_fn = getattr(module, task)
@@ -484,7 +487,7 @@ def autograde_folder(folder):
 
     print(f"Failed to compile: {fails}")
     col_names = sorted(list(TASKS.keys()) + list(map(lambda x: f"{x} Feedback", TASKS.keys())))
-    score_columns = ["student_number"] + col_names + ["total"]
+    score_columns = ["filename", "student_number", "name"] + col_names + ["total"]
     return pd.DataFrame(all_scores, columns=score_columns), fails
 
 # -----------------------------
