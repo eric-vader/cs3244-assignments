@@ -1,17 +1,18 @@
-import os
-import nbformat
-from nbconvert import PythonExporter
-import importlib.util
-import sys
-import math
-from collections import Counter
-import pandas as pd
-from sklearn.datasets import fetch_lfw_people
-from sklearn.metrics import get_scorer
-from sklearn.model_selection import StratifiedKFold
-import numpy as np
-from tqdm import tqdm
 import ast
+import importlib.util
+import io
+import math
+import os
+import sys
+from collections import Counter
+from contextlib import redirect_stdout
+
+import nbformat
+import pandas as pd
+from nbconvert import PythonExporter
+from sklearn.datasets import fetch_lfw_people
+from sklearn.model_selection import train_test_split
+from tqdm import tqdm
 
 # -----------------------------
 # Configuration
@@ -21,7 +22,7 @@ BASE_DIR = os.path.dirname(os.path.abspath(__file__))
 NOTEBOOK_FOLDER = os.path.join(BASE_DIR, "submissions")
 SCORE_CSV = os.path.join(BASE_DIR, "a1_grades.csv")
 FEEDBACK_CSV = os.path.join(BASE_DIR, "a1_feedbacks.csv")
-OUTPUT_TXT = os.path.join(BASE_DIR, "a1_fails.txt")
+FAILS_TXT = os.path.join(BASE_DIR, "a1_fails.txt")
 GRADE_DISTRIBUTION = {
     "1": 1.0,
     "2": 1.0,
@@ -53,23 +54,6 @@ class KeepImportsAndDefs(ast.NodeTransformer):
         ]
         node.body = new_body
         return node
-
-# class KeepImportsDefsAndAssigns(ast.NodeTransformer):
-#     def visit_Module(self, node):
-#         # Keep imports, function/class definitions, and assignments
-#         new_body = []
-#         for n in node.body:
-#             if isinstance(n, (ast.Import, ast.ImportFrom, ast.FunctionDef, ast.AsyncFunctionDef, ast.ClassDef, ast.Assign, ast.AnnAssign)):
-#                 new_body.append(n)
-#             # Explicitly skip print() calls and assert statements
-#             # elif isinstance(n, ast.Expr) and isinstance(n.value, ast.Call):
-#             #     # If it's a function call, check if it's "print"
-#             #     if isinstance(n.value.func, ast.Name) and n.value.func.id == "print":
-#             #         continue
-#             elif isinstance(n, ast.Assert):
-#                 continue
-#         node.body = new_body
-#         return node
     
 def import_module_safe(module_name, module_path):
     # Read source
@@ -345,7 +329,7 @@ class KNNRegressor_solution:
 # -----------------------------
 # Task 5
 # -----------------------------
-ACCURACY_THRESHOLD = 0.5
+ACCURACY_THRESHOLD_HIGH = 0.5
 
 # -----------------------------
 # Generic Grader Functions
@@ -365,7 +349,7 @@ def generate_feedback(point, max_point, desc, error=None):
     else:
         return f"[{point}/{max_point}] Error ({error}) in {desc}"
 
-def grade(type, student, solution, test_cases, check_fn, weight):
+def grade(type, student, solution, test_cases, check_fn, weight, module=None):
     total_point = 0
     feedbacks = []
     for tc_group in test_cases:
@@ -382,7 +366,10 @@ def grade(type, student, solution, test_cases, check_fn, weight):
                         fail = True
                         break
             elif type == "class":
-                for X_train, y_train, X_test, class_arg in tc:  
+                for X_train, y_train, X_test, class_arg in tc:     
+                    module.__dict__["X_train"] = X_train
+                    module.__dict__["y_train"] = y_train
+
                     output_class = student(class_arg)
                     output_class.fit(X_train, y_train)
                     output = output_class.predict(X_test)
@@ -399,32 +386,43 @@ def grade(type, student, solution, test_cases, check_fn, weight):
             point = 0
             feedback = generate_feedback(point, max_point, desc, error=str(e))
 
-        total_point += point
+        total_point += point 
         feedbacks.append(feedback)
     return total_point, feedbacks
 
-def grade_model(student_fn):
+def grade_model(student_fn, weight):
     lfw_people = fetch_lfw_people(min_faces_per_person=70, resize=0.4)
     X = lfw_people.data  # Flattened images
     y = lfw_people.target
-
+    max_point = weight
     # Split into training and test sets
+        
     try:
-        cv = StratifiedKFold(n_splits=5, shuffle=True, random_state=42)
-        scores = []
-        for train_idx, test_idx in cv.split(X, y):
-            X_train_cv, X_test_cv = X[train_idx], X[test_idx]
-            y_train_cv, y_test_cv = y[train_idx], y[test_idx]
-            model_cv = student_fn(X_train_cv, y_train_cv)
-            scorer = get_scorer("accuracy")
-            score = scorer(model_cv, X_test_cv, y_test_cv)
-            scores.append(score)
+        X_train, X_test, y_train, y_test = train_test_split(
+            X, y, test_size=0.25, random_state=42
+        )
 
-        scores = np.array(scores)
-        accuracy_score = scores.mean()
-        return 1 if accuracy_score > ACCURACY_THRESHOLD else 0
-    except Exception:
-        return "E"
+        f = io.StringIO()
+        with redirect_stdout(f):
+            model = student_fn(X_train, y_train)
+            accuracy_score = model.score(X_test, y_test)
+
+        if accuracy_score > ACCURACY_THRESHOLD_HIGH:
+            point = max_point
+            feedback = generate_feedback(point, max_point, "Performance is above threshold")
+        else:
+            point = 0
+            feedback = generate_feedback(point, max_point, "Performance is below threshold")
+
+    except Exception as e:
+        point = 0
+        if str(e) == "'NoneType' object has no attribute 'score'":
+            feedback = generate_feedback(point, max_point, "No model trained")
+        elif "not defined" in str(e) and ("X_test" in str(e) or "X" in str(e)):
+            feedback = generate_feedback(point, max_point, "Accessed test case")
+        else:
+            feedback = generate_feedback(point, max_point, "Evaluation", error=str(e))
+    return point, [feedback]
     
 # -----------------------------
 # Autograde Workflow
@@ -436,21 +434,11 @@ TASKS = {
     "3.2": ("function", "knn_regression", knn_regression_solution, float_assert, TC_3_2), 
     "4.1": ("class", "KNNClassifier", KNNClassifier_solution, default_assert, TC_4_1), 
     "4.2": ("class", "KNNRegressor", KNNRegressor_solution, list_float_assert, TC_4_2),
-    # "5": ("model", "train_model", None, None, None)
+    "5": ("model", "train_model", None, None, None)
 }
 
-
 def autograde_folder(folder):
-    skips = [
-        "jenniferluxinting_130220_7126802_Jennifer Lu XinTing-A0281412N-assignment1",
-        "linmyat_128095_7157565_LinMyat-A0271863X-assignment1",
-        "nyanlin_LATE_139124_7161381_Nyan_L_A0286561W_assignment1",
-        "ongjiaxi_126929_7140279_Ong Jia Xi-A0276092Y-assignment1",
-        "wongjiweixylia_135768_7152936_Xylia_Wong_A0283133L_assignment1"
-    ]
-
     all_scores = []
-    all_feedbacks = []
     fails = []
     for filename in tqdm(os.listdir(folder)):
         if not filename.endswith(".ipynb"):
@@ -459,52 +447,45 @@ def autograde_folder(folder):
         nb_path = os.path.join(folder, filename)
         module_path = nb_path.replace(".ipynb", ".py")
         student_number = filename[:-6]
-
-        if student_number in skips:
-            scores = [student_number] + ["X"] * 7
-            all_scores.append(scores)
-            continue
         
         try:
             # Convert notebook -> module
             notebook_to_module(nb_path, module_path)
-
-            # Import module
             module_name = filename.replace(".ipynb", "")
             module = import_module_safe(module_name, module_path)
         except Exception as e:
-            # print(e)
             # Catch notebooks that fail to run
-            fails.append(student_number)
+            fails.append(f"{student_number}: {str(e)}")
+            scores = [student_number] + ["X"] * (len(TASKS.keys()) + 1)
+            all_scores.append(scores)
             if os.path.exists(module_path):
                 os.remove(module_path)
             continue
 
         # Grade function
         total_score = 0
-
         scores = [student_number]
-        feedbacks = [student_number]
         for task_num, (type, task, solution_fn, check_fn, test_cases) in TASKS.items():
             weight = GRADE_DISTRIBUTION[task_num]
             student_fn = getattr(module, task)
-            if type == "function" or type == "class":
-                score, feedback = grade(type, student_fn, solution_fn, test_cases, check_fn, weight) 
+            if type == "function":
+                score, feedback = grade(type, student_fn, solution_fn, test_cases, check_fn, weight)
+            elif type == "class":
+                score, feedback = grade(type, student_fn, solution_fn, test_cases, check_fn, weight, module)
             elif type == "model":
-                score, feedback = grade_model(student_fn) 
+                score, feedback = grade_model(student_fn, weight) 
             scores.append(score)
-            feedbacks.append(";".join(feedback))
+            scores.append("; ".join(feedback))
             total_score += score
         scores.append(total_score)
         all_scores.append(scores)
-        all_feedbacks.append(feedbacks)
 
         os.remove(module_path)
 
     print(f"Failed to compile: {fails}")
-    score_columns = ["student_number"] + sorted(TASKS.keys()) + ["total"]
-    feedback_columns = ["student_number"] + sorted(TASKS.keys())
-    return pd.DataFrame(all_scores, columns=score_columns), pd.DataFrame(all_feedbacks, columns=feedback_columns), fails
+    col_names = sorted(list(TASKS.keys()) + list(map(lambda x: f"{x} Feedback", TASKS.keys())))
+    score_columns = ["student_number"] + col_names + ["total"]
+    return pd.DataFrame(all_scores, columns=score_columns), fails
 
 # -----------------------------
 # Save report to CSV
@@ -522,8 +503,7 @@ def save_fails(fails, txt_file):
 # Run autograder
 # -----------------------------
 if __name__ == "__main__":
-    score_report, feedback_report, fails = autograde_folder(NOTEBOOK_FOLDER)
+    score_report, fails = autograde_folder(NOTEBOOK_FOLDER)
     save_to_csv(score_report, SCORE_CSV)
-    save_to_csv(feedback_report, FEEDBACK_CSV)
-    save_fails(fails, OUTPUT_TXT)
+    save_fails(fails, FAILS_TXT)
     print(f"Grading completed! Results saved to {SCORE_CSV}")
