@@ -1,19 +1,7 @@
-import ast
-import importlib.util
 import io
-import math
-import os
-import re
-import sys
-from collections import Counter
 from contextlib import redirect_stdout
 
-import nbformat
-import pandas as pd
-from nbconvert import PythonExporter
-from sklearn.datasets import fetch_lfw_people
 from sklearn.model_selection import train_test_split
-from tqdm import tqdm
 
 def default_assert(output, expected):
     return output == expected
