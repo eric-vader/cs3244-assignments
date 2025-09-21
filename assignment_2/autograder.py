@@ -714,6 +714,7 @@ class DTClassifier_Solution:
 # -----------------------------
 # Task 3
 # -----------------------------
+DATASET = load_iris()
 ACCURACY_THRESHOLD = 0.5
 
 # -----------------------------
@@ -783,7 +784,7 @@ TASKS = {
     "2.5": ("function", "build_tree_recursive", build_tree_recursive_solution, default_assert, TC_2_5),
     "2.6": ("2_6", "predict_one_instance", predict_one_instance_solution, float_assert, TC_2_6),
     "2.7": ("class", "DTClassifier", DTClassifier_Solution, list_float_assert, TC_2_7),
-    "3": ("model", "train_model", None, ACCURACY_THRESHOLD, load_iris())
+    "3": ("model", "train_model", None, ACCURACY_THRESHOLD, DATASET)
 }
 
 def autograde_folder(folder):

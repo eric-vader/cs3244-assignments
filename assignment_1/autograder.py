@@ -281,6 +281,7 @@ class KNNRegressor_solution:
 # -----------------------------
 # Task 5
 # -----------------------------
+DATASET = fetch_lfw_people(min_faces_per_person=70, resize=0.4)
 ACCURACY_THRESHOLD = 0.5
     
 # -----------------------------
@@ -293,7 +294,7 @@ TASKS = {
     "3.2": ("function", "knn_regression", knn_regression_solution, float_assert, TC_3_2), 
     "4.1": ("class", "KNNClassifier", KNNClassifier_solution, default_assert, TC_4_1), 
     "4.2": ("class", "KNNRegressor", KNNRegressor_solution, list_float_assert, TC_4_2),
-    "5": ("model", "train_model", None, ACCURACY_THRESHOLD, fetch_lfw_people(min_faces_per_person=70, resize=0.4))
+    "5": ("model", "train_model", None, ACCURACY_THRESHOLD, DATASET)
 }
 
 def autograde_folder(folder):
