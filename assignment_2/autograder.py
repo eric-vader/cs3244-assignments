@@ -1,25 +1,23 @@
-import os
-import nbformat
-from nbconvert import PythonExporter
-import importlib.util
-import sys
 import math
+import os
+import re
+import sys
+
 import pandas as pd
-from sklearn.datasets import load_iris as load_dataset
-from sklearn.metrics import get_scorer
-from sklearn.model_selection import StratifiedKFold
-import numpy as np
+from sklearn.datasets import load_iris
 from tqdm import tqdm
-from contextlib import redirect_stdout
-import io
-import ast
+
+from utils.grading_util import *
+from utils.import_export_util import *
 
 # -----------------------------
 # Configuration
 # -----------------------------
+sys.dont_write_bytecode = True
 BASE_DIR = os.path.dirname(os.path.abspath(__file__))
 NOTEBOOK_FOLDER = os.path.join(BASE_DIR, "notebooks")
-OUTPUT_CSV = os.path.join(BASE_DIR, "a2_grades.csv")
+SCORE_CSV = os.path.join(BASE_DIR, "a2_grades.csv")
+FAILS_TXT = os.path.join(BASE_DIR, "a2_fails.txt")
 GRADE_DISTRIBUTION = {
     "1.1": 1,
     "1.2": 3,
@@ -34,79 +32,41 @@ GRADE_DISTRIBUTION = {
 }
 
 # -----------------------------
-# Loading Functions
-# -----------------------------
-def notebook_to_module(notebook_path, module_path):
-    """Convert a notebook to a Python script"""
-    with open(notebook_path) as f:
-        nb = nbformat.read(f, as_version=4)
-    exporter = PythonExporter()
-    source, _ = exporter.from_notebook_node(nb)
-    with open(module_path, "w") as f:
-        f.write(source)
-
-class KeepImportsAndDefs(ast.NodeTransformer):
-    def visit_Module(self, node):
-        # Keep imports and function/class definitions
-        new_body = [
-            n for n in node.body
-            if isinstance(n, (ast.Import, ast.ImportFrom, ast.FunctionDef, ast.AsyncFunctionDef, ast.ClassDef))
-        ]
-        node.body = new_body
-        return node
-
-def import_module_safe(module_name, module_path):
-    # Read source
-    with open(module_path, "r") as f:
-        source = f.read()
-
-    # Parse AST and keep only imports + functions/classes
-    tree = ast.parse(source, filename=module_path)
-    tree = KeepImportsAndDefs().visit(tree)
-    ast.fix_missing_locations(tree)
-
-    # Compile and execute in a new module
-    code = compile(tree, module_path, "exec")
-    module = importlib.util.module_from_spec(
-        importlib.util.spec_from_loader(module_name, loader=None)
-    )
-    sys.modules[module_name] = module
-
-    f = io.StringIO()
-    with redirect_stdout(f):  # capture prints inside functions/classes
-        exec(code, module.__dict__)
-
-    return module
-
-# -----------------------------
 # Task 1.1
 # -----------------------------
 TC_1_1 = [
     # (y_left, y_right)
-    # General test case
-    ([3, 4, 5], [8, 9]),
-    ([1, 1, 1], [1, 1]),
-    ([10], [20]),
-    ([2, 2, 2, 2], [5]),
-    ([1, 5], [3, 7]),
-    ([0, 0, 0], [0]),
-    ([42], [99]),
-    ([1, 2, 3, 4, 5], [100]),
-    ([7, 7, 7], [7, 7]),
-
-    # Negative Values
-    ([-1, -2, -3], [-4, -5]),
-    ([-10, 0, 10], [5, -5]),
-    ([1000, -1000], [0]),
-    
-    # Float Values
-    ([1.1, 2.2, 3.3], [4.4, 5.5]),
-    
-    # Empty Lists. Need to mention that this is possible.
-    ([], [2, 4, 6]),
-    ([], [4, 4, 4]),
-    ([7, 7], []),
-    ([], []),
+    {
+        "point": 0.5,
+        "desc": "General Case",
+        "tc": [
+            # General Case
+            ([3, 4, 5], [8, 9]),
+            ([1, 1, 1], [1, 1]),
+            ([10], [20]),
+            ([2, 2, 2, 2], [5]),
+            ([1, 5], [3, 7]),
+            ([0, 0, 0], [0]),
+            ([42], [99]),
+            ([1, 2, 3, 4, 5], [100]),
+            ([7, 7, 7], [7, 7]),
+            ([1.1, 2.2, 3.3], [4.4, 5.5]),
+        ]
+    }, {
+        "point": 0.5,
+        "desc": "Edge Case: Negative Input or Empty List (Only RSS for that split is 0, not for total)",
+        "tc": [
+            # Negative Input
+            ([-1, -2, -3], [-4, -5]),
+            ([-10, 0, 10], [5, -5]),
+            ([1000, -1000], [0]),
+            # Empty List (Only RSS for that split is 0, not for total). Need to mention that this is possible.
+            ([], [2, 4, 6]),
+            ([], [4, 4, 4]),
+            ([7, 7], []),
+            ([], []),
+        ]
+    },    
 ]
 
 def calculate_regionrss_solution(y_left, y_right):
@@ -125,27 +85,41 @@ def calculate_regionrss_solution(y_left, y_right):
 # -----------------------------
 TC_1_2 = [
     # (X, y, X_test, max_depth)
-    # General test case
-    ([1, 2, 3, 4, 5], [2, 4, 6, 8, 10], [1.5, 3.5, 5], 2),
-    ([0, 1, 2, 3], [5, 7, 9, 11], [0.5, 2.5], 2), 
-    ([1, 2, 3, 4, 5], [10, 10, 20, 20, 20], [1.5, 3.5, 5.5], 2),
-    ([1, 2, 3], [5, 5, 5], [1.5, 2.5], 2),
-    ([1, 2], [3, 6],[1.5], 2),
-    ([3, 1, 4, 2], [30, 10, 40, 20], [1.5, 3.5], 2),
-    ([42], [100], [0, 42, 100], 5),
-    ([0, 0, 0], [0, 0, 0], [0, 0.1, -0.1], 2),
-    ([1, 2, 2, 2, 3, 4], [10, 5, 15, 5, 20, 25], [2, 2.1, 3], 2),
-    ([1, 2, 3], [10, 20, 30], [-999, 999], 2),
-    ([1, 1, 1, 10], [5, 5, 5, 100], [1, 2, 5, 10], 2),
-
-    # Depth of 0
-    ([1, 2, 3], [3, 6, 9], [0, 2, 5], 0),
-
-    # Depth very high -> Stop at leaf of 1 element
-    ([1, 2, 3, 4], [10, 20, 30, 40], [1, 2, 3, 4], 100),
-
-    # Empty Prediction Array
-    ([1, 2, 3], [2, 4, 6], [], 2),
+    {
+        "point": 0.5,
+        "desc": "General Case",
+        "tc": [
+            # General Case
+            ([1, 2, 3, 4, 5], [2, 4, 6, 8, 10], [1.5, 3.5, 5], 2),
+            ([0, 1, 2, 3], [5, 7, 9, 11], [0.5, 2.5], 2), 
+            ([1, 2, 3, 4, 5], [10, 10, 20, 20, 20], [1.5, 3.5, 5.5], 2),
+            ([1, 2, 3], [5, 5, 5], [1.5, 2.5], 2),
+            ([3, 1, 4, 2], [30, 10, 40, 20], [1.5, 3.5], 2),
+            ([1, 2, 3], [10, 20, 30], [-999, 999], 2),
+            ([1, 1, 1, 10], [5, 5, 5, 100], [1, 2, 5, 10], 2),
+            ([1, 2, 3, 4], [10, 20, 30, 40], [1, 2, 3, 4], 100),
+        ]
+    }, {
+        "point": 0.25,
+        "desc": "Edge Case: X_test = Continuous Split Value (Split is Midpoint, Go Right if Equal)",
+        "tc": [
+            # X_test = Continuous Split Value (Split is Midpoint, Go Right if Equal)
+            ([1, 2], [3, 6], [1.5], 2),
+            ([1, 2, 2, 2, 3, 4], [10, 5, 15, 5, 20, 25], [2, 2.1, 3], 2),
+        ]
+    }, {
+        "point": 0.25,
+        "desc": "Edge Case: Depth of 0, 1 Unique X, or Empty Prediction Array",
+        "tc": [
+            # Depth of 0
+            ([1, 2, 3], [3, 6, 9], [0, 2, 5], 0),
+            # 1 Unique X
+            ([0, 0, 0], [0, 0, 0], [0, 0.1, -0.1], 2),
+            ([42], [100], [0, 42, 100], 5),
+            # Empty Prediction Array
+            ([1, 2, 3], [2, 4, 6], [], 2),
+        ]
+    },    
 ]
 
 class DTRegressor_solution:
@@ -210,20 +184,31 @@ class DTRegressor_solution:
 # -----------------------------
 TC_2_1 = [
     # (y, n_unique_classes)
-    # General test case
-    (['yes', 'no', 'yes', 'yes', 'no'], 2),
-    (['yes', 'yes', 'yes','no','maybe','maybe','no','maybe'], 3),
-    (['cat', 'dog', 'cat', 'fish', 'dog', 'cat'], 3),
-    ([1, 1, 0, 0, 1, 1], 2),
-    (['A', 'B', 'C', 'A', 'B', 'C', 'A'], 3),
-    (['a', 'b', 'a', 'b'], 2),
-    (['x', 'y', 'z', 'w'], 4),
-    ([True, False, True, False], 4),
-    (['1', '2', '3', '2', '1'], 2),
-    ([0, 1, 2, 1, 0], 4),
-
-    # Single Class, handle log of base 1
-    (['yes', 'yes', 'yes'], 1),
+    {
+        "point": 0.5,
+        "desc": "General Case (Use n_unique_class for Log Base)",
+        "tc": [
+            # General Case
+            (['yes', 'no', 'yes', 'yes', 'no'], 2),
+            (['yes', 'yes', 'yes','no','maybe','maybe','no','maybe'], 3),
+            (['cat', 'dog', 'cat', 'fish', 'dog', 'cat'], 3),
+            ([1, 1, 0, 0, 1, 1], 2),
+            (['A', 'B', 'C', 'A', 'B', 'C', 'A'], 3),
+            (['a', 'b', 'a', 'b'], 2),
+            (['x', 'y', 'z', 'w'], 4),
+            (['1', '2', '3', '2', '1'], 3),
+        ]
+    }, {
+        "point": 0.5,
+        "desc": "Edge Case: 1 Unique Class (0 Entropy) or n_unique class > Distinct Labels (Use n_unique_class for Log Base)",
+        "tc": [
+            # 1 Unique Class (0 Entropy)
+            (['yes', 'yes', 'yes'], 1),
+            # n_unique class > Distinct Labels (Use n_unique_class for Log Base)
+            ([True, False, True, False], 4),
+            ([0, 1, 2, 1, 0], 4),
+        ]
+    },    
 ]
 
 def compute_entropy_solution(y, n_unique_classes=2):
@@ -246,26 +231,35 @@ def compute_entropy_solution(y, n_unique_classes=2):
 # -----------------------------
 TC_2_2 = [
     # (parent_y, list_of_child_ys, n_unique_classes)
-    # General test case
-    (['yes', 'no', 'yes', 'no'], [['yes', 'yes'], ['no', 'no']], 2),
-    (['yes', 'no', 'yes', 'no'], [['yes', 'no'], ['yes', 'no']], 2),
-    (['yes', 'no', 'yes', 'no', 'yes', 'no'], [['yes', 'yes'], ['no', 'no'], ['yes', 'no']], 2),
-    (['p', 'p', 'n', 'p', 'n'], [['p', 'p'], ['n', 'p', 'n']], 2),
-    (['one', 'one', 'two', 'three', 'three'], [['one', 'one'], ['two', 'three', 'three']], 2),
-    (['x', 'y', 'z'], [['x'], ['y', 'z']], 2),
-    (['1', '2', '1', '2'], [['1', '1'], ['2', '2']], 2),
-    ([True, False, True, False], [[True, True], [False, False]], 2),
-    (['yes', 'yes', 'yes'], [['yes'], ['yes', 'yes']], 2),
-    (['a', 'b', 'c', 'a', 'b'], [['a', 'b'], ['c', 'a', 'b']], 3),
-    (['yes', '1', 'no', '2'], [['yes', '1'], ['no', '2']], 4),
-    ([0, 1, 2, 1, 0], [[0, 1], [2, 1, 0]], 3),
-    (['dog', 1, False], [['dog', 1], [False]], 3),
-
-    # No Split
-    (['yes', 'no', 'yes'], [['yes', 'no', 'yes']], 2),
-
-    # Empty Parent. Need to mention that this is possible.
-    ([], [[]], 2),
+    {
+        "point": 0.5,
+        "desc": "General Case (Use n_unique_class for All Log Bases)",
+        "tc": [
+            # General Case
+            (['yes', 'no', 'yes', 'no'], [['yes', 'yes'], ['no', 'no']], 2),
+            (['yes', 'no', 'yes', 'no'], [['yes', 'no'], ['yes', 'no']], 2),
+            (['yes', 'no', 'yes', 'no', 'yes', 'no'], [['yes', 'yes'], ['no', 'no'], ['yes', 'no']], 2),
+            (['p', 'p', 'n', 'p', 'n'], [['p', 'p'], ['n', 'p', 'n']], 2),
+            (['one', 'one', 'two', 'three', 'three'], [['one', 'one'], ['two', 'three', 'three']], 3),
+            (['x', 'y', 'z'], [['x'], ['y', 'z']], 3),
+            (['1', '2', '1', '2'], [['1', '1'], ['2', '2']], 2),
+            ([True, False, True, False], [[True, True], [False, False]], 2),
+            (['a', 'b', 'c', 'a', 'b'], [['a', 'b'], ['c', 'a', 'b']], 3),
+            (['yes', '1', 'no', '2'], [['yes', '1'], ['no', '2']], 4),
+        ]
+    }, {
+        "point": 0.5,
+        "desc": "Edge Case: Empty Parent, n_unique class > Distinct Labels (Use n_unique_class for Log Base), or No Valid Split",
+        "tc": [
+            # Empty Parent. Need to mention that this is possible.
+            ([], [[]], 2),
+            # n_unique class > Distinct Labels (Use n_unique_class for Log Base)
+            (['yes', 'yes', 'yes'], [['yes'], ['yes', 'yes']], 2),
+            ([0, 1, 2, 1, 0], [[0, 1], [2, 1, 0]], 4),
+            # No Valid Split
+            (['yes', 'no', 'yes'], [['yes', 'no', 'yes']], 2),
+        ]
+    },    
 ]
 
 def information_gain_solution(parent_y, list_of_child_ys, n_unique_classes=2):
@@ -289,20 +283,30 @@ def information_gain_solution(parent_y, list_of_child_ys, n_unique_classes=2):
 # -----------------------------
 TC_2_3 = [
     # (y,)
-    # General test case
-    (['yes', 'no', 'yes', 'no', 'yes'],),
-    (['yes', 'no', 'yes', 'no'],),
-    ([1, 2, 2, 3, 2],),
-    (['cat'],),
-    (['x', 'x', 'x'],),
-    ([3, 1, 3, 2, 2, 1, 1],),
-    ([True, False, True],),
-    (['1', '2', '1', '3'],),
-
-    # Tie-breaker
-    (['b', 'a'],),
-    (['x', 'z'],),
-    (['red', 'green', 'blue'],),
+    {
+        "point": 0.5,
+        "desc": "General Case",
+        "tc": [
+            # General Case
+            (['yes', 'no', 'yes', 'no', 'yes'],),
+            ([1, 2, 2, 3, 2],),
+            (['cat'],),
+            (['x', 'x', 'x'],),
+            ([3, 1, 3, 2, 2, 1, 1],),
+            ([True, False, True],),
+            (['1', '2', '1', '3'],),
+        ]
+    }, {
+        "point": 0.5,
+        "desc": "Edge Case: Tie-Breaker Check",
+        "tc": [
+            # Tie-Breaker Check
+            (['b', 'a'],),
+            (['x', 'z'],),
+            (['red', 'green', 'blue'],),
+            (['yes', 'no', 'yes', 'no'],),
+        ]
+    },    
 ]
 
 def majority_class_solution(y):
@@ -329,68 +333,86 @@ def majority_class_solution(y):
 # -----------------------------
 TC_2_4 = [
     # (X, y, n_unique_classes)
-    # General test case
-    ([['red'], ['blue'], ['red'], ['green'], ['blue']], ['yes', 'no', 'yes', 'no', 'no'], 2),
-    ([[2.0], [4.0], [6.0], [8.0], [10.0]], ['yes', 'yes', 'no', 'no', 'no'], 2),
-    ([['same'], ['same'], ['same']], ['yes', 'yes', 'yes'], 1),
-    ([['x'], ['y'], ['x'], ['z']], [2, 1, 2, 1], 2),
-    ([[True], [False], [True], [False]], ['yes', 'no', 'yes', 'no'], 2),
-    ([['1'], ['2'], ['3'], ['1']], ['a', 'b', 'c', 'a'], 3),
-
-    # Tie-breaker
-    ([['a', 2.0], ['a', 4.0], ['b', 6.0], ['b', 8.0]], ['yes', 'yes', 'no', 'no'], 2),
-
-    # No valid split
-    ([[0], [0], [0]], ['yes', 'no', 'yes'], 2),    
-    ([[1], [2], [3], [4]], ['yes', 'yes', 'yes', 'yes'], 1),
-    ([[8.0], [2.0], [10.0], [4.0], [6.0]], ['no', 'yes', 'no', 'yes', 'no'], 2),
-
-    # Empty dataset
-    # ([], [], 2),
-
-    # Complex tie-breaker
-    (
-        [
-            [2.5, 'A',  1.2, 10.0, 'red'],
-            [3.5, 'B',  3.1, 15.0, 'blue'],
-            [2.0, 'A',  1.3,  9.5, 'red'],
-            [4.0, 'B',  3.0, 14.0, 'green'],
-            [3.8, 'A',  2.9, 13.5, 'blue'],
-            [4.1, 'B',  3.2, 14.5, 'green'],
-            [1.8, 'A',  1.1, 10.5, 'red'],
-            [3.6, 'B',  3.3, 15.5, 'blue'],
-        ],
-        ['yes', 'no', 'yes', 'no', 'no', 'no', 'yes', 'no'],
-        2
-    ),
-    (
-        [
-            ['red', 2.5, 'A',  1.2, 10.0],
-            ['blue', 3.5, 'B',  3.1, 15.0],
-            ['red', 2.0, 'A',  1.3,  9.5],
-            ['green', 4.0, 'B',  3.0, 14.0],
-            ['blue', 3.8, 'A',  2.9, 13.5],
-            ['green', 4.1, 'B',  3.2, 14.5],
-            ['red', 1.8, 'A',  1.1, 10.5],
-            ['blue', 3.6, 'B',  3.3, 15.5],
-        ],
-        ['yes', 'no', 'yes', 'no', 'no', 'no', 'yes', 'no'],
-        2
-    ),
-    (
-        [
-            ['A', 1.2, 10.0, 'red', 2.5],
-            ['B', 3.1, 15.0, 'blue', 3.5],
-            ['A', 1.3, 9.5, 'red', 2.0],
-            ['B', 3.0, 14.0, 'green', 4.0],
-            ['A', 2.9, 13.5, 'blue', 3.8],
-            ['B', 3.2, 14.5, 'green', 4.1],
-            ['A', 1.1, 10.5, 'red', 1.8],
-            ['B', 3.3, 15.5, 'blue', 3.6],
-        ],
-        ['yes', 'no', 'yes', 'no', 'no', 'no', 'yes', 'no'],
-        2
-    )
+    {
+        "point": 0.25,
+        "desc": "General Case (Numerical Attributes)",
+        "tc": [
+            # General Case
+            ([[2.0], [4.0], [6.0], [8.0], [10.0]], ['yes', 'yes', 'no', 'no', 'no'], 2),
+            ([[1], [0], [1], [0]], ['yes', 'no', 'yes', 'no'], 2),
+            ([[8.0], [2.0], [10.0], [4.0], [6.0]], ['no', 'yes', 'no', 'yes', 'no'], 2),
+        ]
+    }, {
+        "point": 0.25,
+        "desc": "General Case (Categorical Attributes)",
+        "tc": [
+            # General Case
+            ([['red'], ['blue'], ['red'], ['green'], ['blue']], ['yes', 'no', 'yes', 'no', 'no'], 2),
+            ([['x'], ['y'], ['x'], ['z']], [2, 1, 2, 1], 2),
+            ([['1'], ['2'], ['3'], ['1']], ['a', 'b', 'c', 'a'], 3),
+        ]
+    }, {
+        "point": 0.25,
+        "desc": "Edge Case: Mixed Attribute & Tie-Breaker Check",
+        "tc": [
+            # Tie-Breaker Check
+            ([['a', 2.0], ['a', 4.0], ['b', 6.0], ['b', 8.0]], ['yes', 'yes', 'no', 'no'], 2),
+            # Complex Tie-Breaker Check
+            (
+                [
+                    [2.5, 'A',  1.2, 10.0, 'red'],
+                    [3.5, 'B',  3.1, 15.0, 'blue'],
+                    [2.0, 'A',  1.3,  9.5, 'red'],
+                    [4.0, 'B',  3.0, 14.0, 'green'],
+                    [3.8, 'A',  2.9, 13.5, 'blue'],
+                    [4.1, 'B',  3.2, 14.5, 'green'],
+                    [1.8, 'A',  1.1, 10.5, 'red'],
+                    [3.6, 'B',  3.3, 15.5, 'blue'],
+                ],
+                ['yes', 'no', 'yes', 'no', 'no', 'no', 'yes', 'no'],
+                2
+            ),
+            (
+                [
+                    ['red', 2.5, 'A',  1.2, 10.0],
+                    ['blue', 3.5, 'B',  3.1, 15.0],
+                    ['red', 2.0, 'A',  1.3,  9.5],
+                    ['green', 4.0, 'B',  3.0, 14.0],
+                    ['blue', 3.8, 'A',  2.9, 13.5],
+                    ['green', 4.1, 'B',  3.2, 14.5],
+                    ['red', 1.8, 'A',  1.1, 10.5],
+                    ['blue', 3.6, 'B',  3.3, 15.5],
+                ],
+                ['yes', 'no', 'yes', 'no', 'no', 'no', 'yes', 'no'],
+                2
+            ),
+            (
+                [
+                    ['A', 1.2, 10.0, 'red', 2.5],
+                    ['B', 3.1, 15.0, 'blue', 3.5],
+                    ['A', 1.3, 9.5, 'red', 2.0],
+                    ['B', 3.0, 14.0, 'green', 4.0],
+                    ['A', 2.9, 13.5, 'blue', 3.8],
+                    ['B', 3.2, 14.5, 'green', 4.1],
+                    ['A', 1.1, 10.5, 'red', 1.8],
+                    ['B', 3.3, 15.5, 'blue', 3.6],
+                ],
+                ['yes', 'no', 'yes', 'no', 'no', 'no', 'yes', 'no'],
+                2
+            )
+        ]
+    }, {
+        "point": 0.25,
+        "desc": "Edge Case: No Valid Split (Same X or Pure Node)",
+        "tc": [
+            # No Valid Split (Same X or Pure node)
+            ([['same'], ['same'], ['same']], ['yes', 'yes', 'yes'], 1),
+            ([[0], [0], [0]], ['yes', 'no', 'yes'], 2),
+            ([[1], [2], [3], [4]], ['yes', 'yes', 'yes', 'yes'], 1),
+            # Empty dataset
+            # ([], [], 2),
+        ]
+    },    
 ]
 
 def find_best_split_solution(X, y, n_unique_classes=2):
@@ -453,49 +475,69 @@ def find_best_split_solution(X, y, n_unique_classes=2):
 # -----------------------------
 TC_2_5 = [
     # (X, y, depth, max_depth, n_unique_classes)
-    # General test case
-    ([[1], [2], [3]], [0, 1, 0], 2, 2, 2),
-    ([[1], [2], [3]], [0, 0, 0], 0, 5, 2),
-    ([[1], [2], [10], [12]], [0, 0, 1, 1], 0, 2, 2),
-    ([['Red'], ['Blue'], ['Red'], ['Green']], [0, 1, 0, 2], 0, 2, 3),
-    ([[1], [2], [3]], [0, 0, 0], 0, 5, 2),
-    ([[10], [2], [12], [3], [1]], [0, 1, 0, 1, 1], 0, 2, 2),
-    ([['A'], ['B'], ['A'], ['C']], [0, 1, 0, 1], 0, 2, 2),
-    ([[10], [2], [12], [3], [1]], [0, 1, 0, 1, 1], 0, 1, 2),
-    ([[1], [2], [3]], [0, 1, 0], 0, 0, 2),
-    ([[1], [2], [3], [4]], [0, 1, 2, 3], 0, 5, 4),
-    ([[5], [5], [5]], [1, 1, 0], 0, 3, 2),
-    ([[10, 'A'], [20, 'B'], [15, 'A'], [25, 'C']], [0, 1, 0, 1], 0, 3, 2),
-    ([[42]], [1], 0, 3, 1),
-
-    # Empty List
-    # ([], [0, 1, 0], 0, 5, 2),
-    # ([], [], 0, 3, 0),
-
-    # Complex Case
-    (
-        [
-            [1.0, 'A', 0, 'X', 0.1, 10.0],
-            [1.2, 'A', 1, 'X', 0.2, 10.5],
-            [1.4, 'A', 0, 'X', 0.3, 11.0],
-            [2.0, 'B', 1, 'Y', 0.4, 11.5],
-            [2.2, 'B', 0, 'Y', 0.5, 12.0],
-            [2.4, 'B', 1, 'Y', 0.6, 12.5],
-            [3.0, 'C', 0, 'Z', 0.7, 13.0],
-            [3.2, 'C', 1, 'Z', 0.8, 13.5],
-            [3.4, 'C', 0, 'Z', 0.9, 14.0],
-            [4.0, 'D', 1, 'X', 1.0, 14.5],
-            [4.2, 'D', 0, 'Y', 1.1, 15.0],
-            [4.4, 'D', 1, 'Z', 1.2, 15.5],
-            [5.0, 'E', 0, 'X', 1.3, 16.0],
-            [5.2, 'E', 1, 'Y', 1.4, 16.5],
-            [5.4, 'E', 0, 'Z', 1.5, 17.0],
-        ],
-        [0, 1, 2, 0, 1, 2, 0, 1, 2, 0, 1, 2, 0, 1, 2],
-        0,
-        4,
-        5
-    ),
+    {
+        "point": 0.25,
+        "desc": "General Case (Numerical Attributes)",
+        "tc": [
+            # General Case (Numerical Attributes)
+            ([[1], [2], [10], [12]], [0, 0, 1, 1], 0, 2, 2),
+            ([[10], [2], [12], [3], [1]], [0, 1, 0, 1, 1], 0, 2, 2),
+            ([[10], [2], [12], [3], [1]], [0, 1, 0, 1, 1], 0, 1, 2),
+            ([[1], [2], [3], [4]], [0, 1, 2, 3], 0, 5, 4),   
+        ]   
+    }, {
+        "point": 0.25,
+        "desc": "General Case (Categorical Attributes)",
+        "tc": [
+            # General Case (Categorical Attributes)
+            ([['Red'], ['Blue'], ['Red'], ['Green']], [0, 1, 0, 2], 0, 2, 3),
+            ([['A'], ['B'], ['A'], ['C']], [0, 1, 0, 1], 0, 2, 2),  
+        ]
+    }, {
+        "point": 0.25,
+        "desc": "General Case (Mixed Attributes)",
+        "tc": [
+            # General Case (Mixed Attributes)
+            ([[10, 'A'], [20, 'B'], [15, 'A'], [25, 'C']], [0, 1, 0, 1], 0, 3, 2),
+            (
+                [
+                    [1.0, 'A', 0, 'X', 0.1, 10.0],
+                    [1.2, 'A', 1, 'X', 0.2, 10.5],
+                    [1.4, 'A', 0, 'X', 0.3, 11.0],
+                    [2.0, 'B', 1, 'Y', 0.4, 11.5],
+                    [2.2, 'B', 0, 'Y', 0.5, 12.0],
+                    [2.4, 'B', 1, 'Y', 0.6, 12.5],
+                    [3.0, 'C', 0, 'Z', 0.7, 13.0],
+                    [3.2, 'C', 1, 'Z', 0.8, 13.5],
+                    [3.4, 'C', 0, 'Z', 0.9, 14.0],
+                    [4.0, 'D', 1, 'X', 1.0, 14.5],
+                    [4.2, 'D', 0, 'Y', 1.1, 15.0],
+                    [4.4, 'D', 1, 'Z', 1.2, 15.5],
+                    [5.0, 'E', 0, 'X', 1.3, 16.0],
+                    [5.2, 'E', 1, 'Y', 1.4, 16.5],
+                    [5.4, 'E', 0, 'Z', 1.5, 17.0],
+                ],
+                [0, 1, 2, 0, 1, 2, 0, 1, 2, 0, 1, 2, 0, 1, 2],
+                0,
+                4,
+                5
+            ),
+        ]
+    }, {
+        "point": 0.25,
+        "desc": "Edge Case: No Valid Split (Max Depth, Same X, Pure Node)",
+        "tc": [
+            # No Valid Split (Max Depth, Same X, Pure Node)
+            ([[1], [2], [3]], [0, 1, 0], 2, 2, 2),
+            ([[1], [2], [3]], [0, 1, 0], 0, 0, 2),
+            ([[1], [2], [3]], [0, 0, 0], 0, 5, 2),
+            ([[5], [5], [5]], [1, 1, 0], 0, 3, 2),
+            ([[42]], [1], 0, 3, 1),
+            # Empty X
+            # ([], [0, 1, 0], 0, 5, 2),
+            # ([], [], 0, 3, 0),
+        ]
+    }, 
 ]
 
 def build_tree_recursive_solution(X, y, depth, max_depth, n_unique_classes):
@@ -544,25 +586,38 @@ def build_tree_recursive_solution(X, y, depth, max_depth, n_unique_classes):
 # -----------------------------
 TC_2_6 = [
     # ([X, y, depth, max_depth, n_unique_classes], x_instance)
-    ([[[3.0], [7.0], [2.0], [8.0]], [0, 1, 0, 1], 0, 1, 2], [2.5]),
-    ([[[3.0], [7.0], [2.0], [8.0]], [0, 1, 0, 1], 0, 1, 2], [6.0]),
-    ([[['apple'], ['banana'], ['apple'], ['orange']], [0, 1, 0, 1], 0, 1, 2], ['apple']),
-    ([[['apple'], ['banana'], ['apple'], ['orange']], [0, 1, 0, 1], 0, 1, 2], ['grape']),
-    ([[[10, 'A'], [2, 'B'], [12, 'A'], [3, 'B']], [0, 1, 0, 1], 0, 1, 2], [4, 'C']),
-    ([[['A', 10], ['B', 2], ['A', 12], ['C', 3]], [0, 1, 0, 1], 0, 1, 2], ['B', 5]),
-    ([[[10, 'red'], [2, 'blue'], [12, 'green'], [3, 'red']], [0, 1, 0, 1], 0, 2, 2], [4, 'red']),
-    ([[[2.0], [4.0], [6.0], [8.0]], [0, 0, 1, 1], 0, 1, 2], [4.0]),
-    ([[['red', 'circle'], ['blue', 'square'], ['red', 'triangle'], ['blue', 'circle']], [1, 0, 1, 0], 0, 2, 2], ['blue', 'triangle']),
-    ([[[1.0, 2.0], [3.0, 4.0], [5.0, 6.0], [7.0, 8.0]], [0, 0, 1, 1], 0, 2, 2], [10.0, 12.0]),
-    ([[[1, 'A'], [2, 'B'], [3, 'C'], [4, 'D']], [0, 1, 0, 1], 0, 2, 2], [2, 'B']),
-    ([[[1, 'x', 10], [2, 'y', 20], [1, 'x', 30], [2, 'y', 40]], [0, 1, 0, 1], 0, 2, 2], [1, 'z', 25]),
-    ([[[1.0], [1.2], [2.5]], [0, 0, 1], 0, 1, 2], [1.85]),
-    ([[[1.0], [2.0], [3.0], [4.0]], [0, 1, 0, 1], 0, 1, 2], [2.5]),
-    ([[[5], [6], [7], [8]], [1, 1, 1, 1], 0, 1, 1], [9]),
-
-    # No valid split
-    ([[['cat'], ['dog'], ['cat'], ['mouse']], [0, 1, 0, 1], 0, 1, 2], ['elephant']),
-    ([[[5], [5], [5], [5]], [2, 2, 1, 1], 0, 0, 2], [10]),
+    {
+        "point": 0.5,
+        "desc": "General Case",
+        "tc": [
+            # General Case
+            ([[[3.0], [7.0], [2.0], [8.0]], [0, 1, 0, 1], 0, 1, 2], [2.5]),
+            ([[[3.0], [7.0], [2.0], [8.0]], [0, 1, 0, 1], 0, 1, 2], [6.0]),
+            ([[['apple'], ['banana'], ['apple'], ['orange']], [0, 1, 0, 1], 0, 1, 2], ['apple']),
+            ([[['A', 10], ['B', 2], ['A', 12], ['C', 3]], [0, 1, 0, 1], 0, 1, 2], ['B', 5]),
+            ([[[10, 'red'], [2, 'blue'], [12, 'green'], [3, 'red']], [0, 1, 0, 1], 0, 2, 2], [4, 'red']),
+            ([[['red', 'circle'], ['blue', 'square'], ['red', 'triangle'], ['blue', 'circle']], [1, 0, 1, 0], 0, 2, 2], ['blue', 'triangle']),
+            ([[[1.0, 2.0], [3.0, 4.0], [5.0, 6.0], [7.0, 8.0]], [0, 0, 1, 1], 0, 2, 2], [10.0, 12.0]),
+            ([[[1, 'A'], [2, 'B'], [3, 'C'], [4, 'D']], [0, 1, 0, 1], 0, 2, 2], [2, 'B']),
+        ]
+    }, {
+        "point": 0.5,
+        "desc": "Edge Case: X_test = Continuous Split Value, Unseen Categorical Value (Use Default), or No Valid Split (Use Majority with Tie-Breaker)",
+        "tc": [
+            # X_test = Continuous Split Value
+            ([[[2.0], [4.0], [6.0], [8.0]], [0, 0, 1, 1], 0, 1, 2], [5.0]),
+            ([[[1.0], [1.2], [2.5]], [0, 0, 1], 0, 1, 2], [1.85]),
+            # Unseen Categorical Value (Use Default)
+            ([[['apple'], ['banana'], ['apple'], ['orange']], [0, 1, 0, 1], 0, 1, 2], ['grape']),
+            ([[[10, 'A'], [2, 'B'], [12, 'A'], [3, 'B']], [0, 1, 0, 1], 0, 1, 2], [4, 'C']),
+            ([[['cat'], ['dog'], ['cat'], ['mouse']], [0, 1, 0, 1], 0, 1, 2], ['elephant']),
+            ([[[1, 'x', 10], [2, 'y', 20], [1, 'x', 30], [2, 'y', 40]], [0, 1, 0, 1], 0, 2, 2], [1, 'z', 25]),
+            # No Valid Split (Use Majority with Tie-Breaker)
+            ([[[5], [6], [7], [8]], [1, 1, 1, 1], 0, 1, 1], [9]),
+            ([[[5], [5], [5], [5]], [2, 2, 1, 1], 0, 0, 2], [10]),
+            ([[[1.0], [2.0], [3.0], [4.0]], [0, 1, 0, 1], 0, 1, 2], [2.5]),
+        ]
+    },    
 ]
 
 def predict_one_instance_solution(x_instance, tree_node):
@@ -589,53 +644,53 @@ def predict_one_instance_solution(x_instance, tree_node):
         # Use .get() with the default_prediction as fallback for unseen categories
         next_node = tree_node['children_map'].get(feature_val)
         if next_node is not None:
-             return predict_one_instance_solution(x_instance, next_node)
+            return predict_one_instance_solution(x_instance, next_node)
         else:
-             # Unseen category encountered, use the default prediction for this node
-             return tree_node['default_prediction']
+            # Unseen category encountered, use the default prediction for this node
+            return tree_node['default_prediction']
         
-def grade_q26(student_fn, solution_fn, test_cases, check_fn):
-    try:
-        for args, x_instance in test_cases:
-            tree = build_tree_recursive_solution(*args)
-            output = solution_fn(x_instance, tree)
-            expected = student_fn(x_instance, tree)
-            if not check_fn(output, expected):
-                return 0
-        return 1
-    except Exception:
-        return 0
+
         
 # -----------------------------
 # Task 2.7
 # -----------------------------
 TC_2_7 = [
     # (X, y, X_predict, max_depth)
-    # General Test Case
-    ([[1.0], [2.0], [3.0]], [0, 0, 0], [[10.0], [20.0]], 5),
-    ([[3.0], [7.0], [2.0], [8.0]], [0, 1, 0, 1], [[2.5], [6.0], [4.9], [5.1]], 1),
-    ([['red'], ['blue'], ['red'], ['green']], [0, 1, 0, 1], [['red'], ['blue'], ['yellow']], 1),
-    ([[1.0], [1.0], [1.0], [1.0]], [0, 1, 0, 1], [[1.0], [2.0], [0.0]], 3),
-    ([[1], [2], [3], [4]], [0, 1, 1, 1], [[10], [0], [2]], 0),
-    ([[1], [2], [6], [7]], [0, 0, 1, 1], [[1], [6], [4]], 3),
-    ([['cat'], ['dog'], ['dog'], ['cat']], [0, 1, 1, 0], [['cat'], ['dog'], ['rabbit'], ['horse'], ['snake']], 1),
-
-    # Multi-dimension X
-    (
-        [[10, 'apple'], [2, 'blue'], [12, 'banana'], [3, 'apple'], [4, 'orange']],
-        [0, 1, 0, 1, 0],
-        [[4, 'blue'], [6, 'banana'], [3, 'apple'], [1, 'orange'], [11, 'unknown']],
-        2
-    ),
-    (
-        [[1, 'red'], [2, 'blue'], [3, 'red'], [4, 'green']], 
-        [0, 0, 1, 1],
-        [[1, 'red'], [2, 'blue'], [3, 'green'], [10, 'blue']], 
-        1
-    ),
-
-    # Empty List
-    # ([], [], [[1.0], [2.0]], 2),
+    {
+        "point": 0.5,
+        "desc": "General Case",
+        "tc": [
+            # General Case
+            ([[3.0], [7.0], [2.0], [8.0]], [0, 1, 0, 1], [[2.5], [6.0], [4.9], [5.1]], 1),
+            ([['red'], ['blue'], ['red'], ['green']], [0, 1, 0, 1], [['red'], ['blue'], ['yellow']], 1),
+            ([[1], [2], [6], [7]], [0, 0, 1, 1], [[1], [6], [4]], 3),
+            (
+                [[1, 'red'], [2, 'blue'], [3, 'red'], [4, 'green']], 
+                [0, 0, 1, 1],
+                [[1, 'red'], [2, 'blue'], [3, 'green'], [10, 'blue']], 
+                1
+            ),
+        ]
+    }, {
+        "point": 0.5,
+        "desc": "Edge Case: Unseen Categorical Value (Use Default), or No Valid Split (Use Majority with Tie-Breaker)",
+        "tc": [
+            # Unseen Categorical Value (Use Default)
+            ([['cat'], ['dog'], ['dog'], ['cat']], [0, 1, 1, 0], [['cat'], ['dog'], ['rabbit'], ['horse'], ['snake']], 1),
+            (
+                [[10, 'apple'], [2, 'blue'], [12, 'banana'], [3, 'apple'], [4, 'orange']],
+                [0, 1, 0, 1, 0],
+                [[4, 'blue'], [6, 'banana'], [3, 'apple'], [1, 'orange'], [11, 'unknown']],
+                2
+            ),
+            # No Valid Split (Use Majority with Tie-Breaker)
+            ([[1.0], [2.0], [3.0]], [0, 0, 0], [[10.0], [20.0]], 5),
+            ([[1.0], [1.0], [1.0], [1.0]], [0, 1, 0, 1], [[1.0], [2.0], [0.0]], 3),
+            ([[1], [2], [3], [4]], [0, 1, 1, 1], [[10], [0], [2]], 0),
+            # Empty List
+            # ([], [], [[1.0], [2.0]], 2),
+        ]
+    },    
 ]
 
 class DTClassifier_Solution:
@@ -662,17 +717,8 @@ class DTClassifier_Solution:
 ACCURACY_THRESHOLD = 0.5
 
 # -----------------------------
-# Generic Grader Functions
+# Additional Grader Functions
 # -----------------------------
-def default_assert(output, expected):
-    return output == expected
-
-def float_assert(output, expected, tolerance=1e-5):
-    return abs(output - expected) < tolerance
-
-def list_float_assert(output, expected, tolerance=1e-5):
-    return len(output) == len(expected) and all(abs(o - e) < tolerance for o, e in zip(output, expected))
-
 def q24_assert(output, expected, tolerance=1e-5):
     output_gain, output_feature_idx, output_split_type, output_split_details = output
     expected_gain, expected_feature_idx, expected_split_type, expected_split_details = expected
@@ -696,54 +742,33 @@ def q24_assert(output, expected, tolerance=1e-5):
 
     return split_details_assert
 
-def grade_function(student_fn, solution_fn, test_cases, check_fn):
-    try:
-        for args in test_cases:
-            output = student_fn(*args)
-            expected = solution_fn(*args)
-            if not check_fn(output, expected):
-                return 0
-        return 1
-    except Exception:
-        return 0
-    
-def grade_class(student_class, solution_class, test_cases, check_fn):
-    try:
-        i = 0
-        for X_train, y_train, X_test, class_arg in test_cases: 
-            output_class = student_class(class_arg)
-            output_class.fit(X_train, y_train)
-            output = output_class.predict(X_test)
-            expected_class = solution_class(class_arg)
-            expected_class.fit(X_train, y_train)
-            expected = expected_class.predict(X_test)
-            if not check_fn(output, expected):
-                return 0
-        return 1
-    except Exception:
-        return 0
-    
-def grade_model(student_fn):
-    dataset = load_dataset()
-    X, y = dataset.data, dataset.target
+def grade_q26(student, solution, test_cases, check_fn, weight):
+    total_point = 0
+    feedbacks = []
+    for tc_group in test_cases:
+        max_point, desc, tc = tc_group["point"], tc_group["desc"], tc_group["tc"]
+        max_point *= weight
+        point = max_point
+        fail = False
+        try:
+            for args, x_instance in tc:     
+                tree = build_tree_recursive_solution(*args)
+                output = solution(x_instance, tree)
+                expected = student(x_instance, tree)
 
-    # Split into training and test sets
-    try:
-        cv = StratifiedKFold(n_splits=5, shuffle=True, random_state=42)
-        scores = []
-        for train_idx, test_idx in cv.split(X, y):
-            X_train_cv, X_test_cv = X[train_idx], X[test_idx]
-            y_train_cv, y_test_cv = y[train_idx], y[test_idx]
-            model_cv = student_fn(X_train_cv, y_train_cv)
-            scorer = get_scorer("accuracy")
-            score = scorer(model_cv, X_test_cv, y_test_cv)
-            scores.append(score)
+                if not check_fn(output, expected):
+                    fail = True
+                    break
+            if fail:
+                point = 0
+            feedback = generate_feedback(point, max_point, desc)
+        except Exception as e:
+            point = 0
+            feedback = generate_feedback(point, max_point, desc, error=str(e))
 
-        scores = np.array(scores)
-        accuracy_score = scores.mean()
-        return 1 if accuracy_score > ACCURACY_THRESHOLD else 0
-    except Exception:
-        return 0
+        total_point += point 
+        feedbacks.append(feedback)
+    return total_point, feedbacks
     
 # -----------------------------
 # Autograde Workflow
@@ -758,70 +783,78 @@ TASKS = {
     "2.5": ("function", "build_tree_recursive", build_tree_recursive_solution, default_assert, TC_2_5),
     "2.6": ("2_6", "predict_one_instance", predict_one_instance_solution, float_assert, TC_2_6),
     "2.7": ("class", "DTClassifier", DTClassifier_Solution, list_float_assert, TC_2_7),
-    "3": ("model", "train_model", None, None, None)
+    "3": ("model", "train_model", None, ACCURACY_THRESHOLD, load_iris())
 }
 
 def autograde_folder(folder):
-    rows = []
+    all_scores = []
     fails = []
+
     for filename in tqdm(os.listdir(folder)):
         if not filename.endswith(".ipynb"):
             continue
 
         nb_path = os.path.join(folder, filename)
         module_path = nb_path.replace(".ipynb", ".py")
-        student_number = filename[:-6]
-        
-        # Convert notebook -> module
-        notebook_to_module(nb_path, module_path)
-        
-        # Import module
-        module_name = filename.replace(".ipynb", "")
+        file = filename[:-6]
+
+        if file in {"sohkaile_132704_7279504_Soh_Kai_Le_A0273076B_assignment2-1",
+                    "muhammadzafranshahbmahadhir_LATE_28061_7332529_Muhammad Zafranshah Bin Mahadhir_A0230456L_assignment2"}:
+            continue
         try:
+            # Convert notebook -> module
+            notebook_to_module(nb_path, module_path)
+            module_name = file.replace(".ipynb", "")
             module = import_module_safe(module_name, module_path)
-        except Exception:
+        except Exception as e:
             # Catch notebooks that fail to run
-            fails.append(student_number)
-            os.remove(module_path)
+            fails.append(f"{file}: {str(e)}")
+            scores = [file] + ["X"] * (len(TASKS.keys()) + 1)
+            all_scores.append(scores)
+            if os.path.exists(module_path):
+                os.remove(module_path)
             continue
 
         # Grade function
         total_score = 0
-
-        row = [student_number]
+        feedbacks = ""
+        name = file.replace("-", "_").split("_")[0]
+        student_number_search = re.search(r"(A\d{7}[A-Z])", file)
+        student_number = student_number_search.group(1) if student_number_search else ""
+        scores = [file, student_number, name]
         for task_num, (type, task, solution_fn, check_fn, test_cases) in TASKS.items():
             weight = GRADE_DISTRIBUTION[task_num]
             student_fn = getattr(module, task)
-            if type == "function":
-                score = grade_function(student_fn, solution_fn, test_cases, check_fn) * weight
-            elif type == "class":
-                score = grade_class(student_fn, solution_fn, test_cases, check_fn) * weight
+            if type in "function":
+                score, feedback_list = grade_function(student_fn, solution_fn, test_cases, check_fn, weight)
+            elif type in "class":
+                score, feedback_list = grade_class(student_fn, solution_fn, test_cases, check_fn, weight)
             elif type == "model":
-                score = grade_model(student_fn) * weight
+                score, feedback_list = grade_model(student_fn, test_cases, check_fn, weight) 
             elif type == "2_6":
-                score = grade_q26(student_fn, solution_fn, test_cases, check_fn) * weight
-
-            row.append(score)
+                score, feedback_list = grade_q26(student_fn, solution_fn, test_cases, check_fn, weight)
+            feedback = "; ".join(feedback_list)
+            scores.extend([score, feedback])
             total_score += score
-        row.append(total_score)
-        rows.append(row)
+            feedbacks += feedback + "\n"
+            # Inject the correct definition for subsequent questions
+            module.__dict__[task] = solution_fn
+
+        scores.extend([total_score, feedbacks])
+        all_scores.append(scores)
 
         os.remove(module_path)
 
     print(f"Failed to compile: {fails}")
-    columns = ["student_number"] + sorted(TASKS.keys()) + ["total"]
-    return pd.DataFrame(rows, columns=columns)
-
-# -----------------------------
-# Save report to CSV
-# -----------------------------
-def save_to_csv(report, csv_file):
-    report.to_csv(csv_file, index = False)
+    col_names = sorted(list(TASKS.keys()) + list(map(lambda x: f"{x} Feedback", TASKS.keys())))
+    score_columns = ["filename", "student_number", "name"] + col_names + ["total", "all_feedbacks"]
+    return pd.DataFrame(all_scores, columns=score_columns), fails
 
 # -----------------------------
 # Run autograder
 # -----------------------------
 if __name__ == "__main__":
-    final_report = autograde_folder(NOTEBOOK_FOLDER)
-    save_to_csv(final_report, OUTPUT_CSV)
-    print(f"Grading completed! Results saved to {OUTPUT_CSV}")
+    score_report, fails = autograde_folder(NOTEBOOK_FOLDER)
+    save_to_csv(score_report, SCORE_CSV)
+    save_fails(fails, FAILS_TXT)
+    print(f"Grading completed! Results saved to {SCORE_CSV}")
