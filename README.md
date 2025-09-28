@@ -11,3 +11,4 @@ Issues:
     - n_unique_class maybe > actual unique classes
 4. Change submission names to not include name, since Canvas already provides
 5. Add Time Limit Error
+6. Assignment 2 Task 1.2 Update test case groupings

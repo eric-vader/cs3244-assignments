@@ -15,9 +15,10 @@ from utils.import_export_util import *
 # -----------------------------
 sys.dont_write_bytecode = True
 BASE_DIR = os.path.dirname(os.path.abspath(__file__))
-NOTEBOOK_FOLDER = os.path.join(BASE_DIR, "notebooks")
-SCORE_CSV = os.path.join(BASE_DIR, "a2_grades.csv")
-FAILS_TXT = os.path.join(BASE_DIR, "a2_fails.txt")
+FOLDER = "submissions"
+NOTEBOOK_FOLDER = os.path.join(BASE_DIR, FOLDER)
+SCORE_CSV = os.path.join(BASE_DIR, f"a2_grades_{FOLDER}.csv")
+FAILS_TXT = os.path.join(BASE_DIR, f"a2_fails.txt")
 GRADE_DISTRIBUTION = {
     "1.1": 1,
     "1.2": 3,
@@ -89,22 +90,22 @@ TC_1_2 = [
         "point": 0.5,
         "desc": "General Case",
         "tc": [
-            # General Case
+            # General Case              # Add unsorted cases
             ([1, 2, 3, 4, 5], [2, 4, 6, 8, 10], [1.5, 3.5, 5], 2),
             ([0, 1, 2, 3], [5, 7, 9, 11], [0.5, 2.5], 2), 
             ([1, 2, 3, 4, 5], [10, 10, 20, 20, 20], [1.5, 3.5, 5.5], 2),
             ([1, 2, 3], [5, 5, 5], [1.5, 2.5], 2),
-            ([3, 1, 4, 2], [30, 10, 40, 20], [1.5, 3.5], 2),
+            ([3, 1, 4, 2], [30, 10, 40, 20], [1.5, 3.5], 2),             
             ([1, 2, 3], [10, 20, 30], [-999, 999], 2),
             ([1, 1, 1, 10], [5, 5, 5, 100], [1, 2, 5, 10], 2),
             ([1, 2, 3, 4], [10, 20, 30, 40], [1, 2, 3, 4], 100),
+            ([1, 2], [3, 6], [1.5], 2),
         ]
     }, {
-        "point": 0.25,
-        "desc": "Edge Case: X_test = Continuous Split Value (Split is Midpoint, Go Right if Equal)",
+        "point": 0.25,                
+        "desc": "Edge Case: Same X_train with different y values",
         "tc": [
-            # X_test = Continuous Split Value (Split is Midpoint, Go Right if Equal)
-            ([1, 2], [3, 6], [1.5], 2),
+            # Same X_train with different y values
             ([1, 2, 2, 2, 3, 4], [10, 5, 15, 5, 20, 25], [2, 2.1, 3], 2),
         ]
     }, {
@@ -752,7 +753,9 @@ def grade_q26(student, solution, test_cases, check_fn, weight):
         point = max_point
         fail = False
         try:
-            for args, x_instance in tc:     
+            for args, x_instance in tc:  
+                args = copy.deepcopy(args)
+                x_instance = copy.deepcopy(x_instance)   
                 tree = build_tree_recursive_solution(*args)
                 output = solution(x_instance, tree)
                 expected = student(x_instance, tree)
@@ -799,9 +802,6 @@ def autograde_folder(folder):
         module_path = nb_path.replace(".ipynb", ".py")
         file = filename[:-6]
 
-        if file in {"sohkaile_132704_7279504_Soh_Kai_Le_A0273076B_assignment2-1",
-                    "muhammadzafranshahbmahadhir_LATE_28061_7332529_Muhammad Zafranshah Bin Mahadhir_A0230456L_assignment2"}:
-            continue
         try:
             # Convert notebook -> module
             notebook_to_module(nb_path, module_path)
@@ -810,7 +810,7 @@ def autograde_folder(folder):
         except Exception as e:
             # Catch notebooks that fail to run
             fails.append(f"{file}: {str(e)}")
-            scores = [file] + ["X"] * (len(TASKS.keys()) + 1)
+            scores = [file] + ["X"] * (len(TASKS.keys() + 1)) * 2
             all_scores.append(scores)
             if os.path.exists(module_path):
                 os.remove(module_path)
@@ -827,7 +827,7 @@ def autograde_folder(folder):
             weight = GRADE_DISTRIBUTION[task_num]
             student_fn = getattr(module, task)
             if type in "function":
-                score, feedback_list = grade_function(student_fn, solution_fn, test_cases, check_fn, weight)
+                score, feedback_list = grade_function(student_fn, solution_fn, test_cases, check_fn, weight, file)
             elif type in "class":
                 score, feedback_list = grade_class(student_fn, solution_fn, test_cases, check_fn, weight)
             elif type == "model":

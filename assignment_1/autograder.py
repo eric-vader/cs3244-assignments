@@ -16,9 +16,10 @@ from utils.import_export_util import *
 # -----------------------------
 sys.dont_write_bytecode = True
 BASE_DIR = os.path.dirname(os.path.abspath(__file__))
-NOTEBOOK_FOLDER = os.path.join(BASE_DIR, "notebooks")
-SCORE_CSV = os.path.join(BASE_DIR, "a1_grades.csv")
-FAILS_TXT = os.path.join(BASE_DIR, "a1_fails.txt")
+FOLDER = "submissions"
+NOTEBOOK_FOLDER = os.path.join(BASE_DIR, FOLDER)
+SCORE_CSV = os.path.join(BASE_DIR, f"a1_grades_{FOLDER}.csv")
+FAILS_TXT = os.path.join(BASE_DIR, f"a1_fails.txt")
 GRADE_DISTRIBUTION = {
     "1": 1.0,
     "2": 1.0,

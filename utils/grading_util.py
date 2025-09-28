@@ -1,5 +1,6 @@
 import io
 from contextlib import redirect_stdout
+import copy
 
 from sklearn.model_selection import train_test_split
 
@@ -18,7 +19,7 @@ def generate_feedback(point, max_point, desc, error=None):
     else:
         return f"[{point}/{max_point}] Error ({error}) in {desc}"
 
-def grade_function(student_fn, solution_fn, test_cases, check_fn, weight):
+def grade_function(student_fn, solution_fn, test_cases, check_fn, weight, n):
     total_point = 0
     feedbacks = []
     for tc_group in test_cases:
@@ -28,6 +29,7 @@ def grade_function(student_fn, solution_fn, test_cases, check_fn, weight):
         fail = False
         try:
             for args in tc:
+                args = copy.deepcopy(args)
                 output = student_fn(*args)
                 expected = solution_fn(*args)
                 if not check_fn(output, expected):
@@ -53,7 +55,11 @@ def grade_class(student_class, solution_class, test_cases, check_fn, weight):
         point = max_point
         fail = False
         try:
-            for X_train, y_train, X_test, class_arg in tc:   
+            for X_train, y_train, X_test, class_arg in tc:  
+                X_train = copy.deepcopy(X_train) 
+                y_train = copy.deepcopy(y_train) 
+                X_test = copy.deepcopy(X_test) 
+                class_arg = copy.deepcopy(class_arg) 
                 output_class = student_class(class_arg)
                 output_class.fit(X_train, y_train)
                 output = output_class.predict(X_test)
