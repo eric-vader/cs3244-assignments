@@ -737,10 +737,10 @@ def q24_assert(output, expected, tolerance=1e-5):
         split_details_assert = split_details_assert and default_assert(output_split_details, expected_split_details)
     elif expected_split_type == "continuous":
         split_details_assert = split_details_assert and float_assert(output_split_details['split_value'], expected_split_details['split_value'], tolerance)
-        split_details_assert = split_details_assert and default_assert(output_split_details['left_X'].sort(), expected_split_details['left_X'].sort())
-        split_details_assert = split_details_assert and default_assert(output_split_details['left_y'].sort(), expected_split_details['left_y'].sort())
-        split_details_assert = split_details_assert and default_assert(output_split_details['right_X'].sort(), expected_split_details['right_X'].sort())
-        split_details_assert = split_details_assert and default_assert(output_split_details['right_y'].sort(), expected_split_details['right_y'].sort())
+        split_details_assert = split_details_assert and default_assert(sorted(output_split_details['left_X']), sorted(expected_split_details['left_X']))
+        split_details_assert = split_details_assert and default_assert(sorted(output_split_details['left_y']), sorted(expected_split_details['left_y']))
+        split_details_assert = split_details_assert and default_assert(sorted(output_split_details['right_X']), sorted(expected_split_details['right_X']))
+        split_details_assert = split_details_assert and default_assert(sorted(output_split_details['right_y']), sorted(expected_split_details['right_y']))
 
     return split_details_assert
 
